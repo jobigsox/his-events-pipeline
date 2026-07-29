@@ -1,0 +1,840 @@
+<title>HIS __CITY__ — Curation Board</title>
+
+<style>
+  :root {
+    --paper:   #EDEEF1;
+    --card:    #FFFFFF;
+    --sunk:    #E0E2E8;
+    --ink:     #14161F;
+    --ink-2:   #3A3F4E;
+    --ink-3:   #5F6575;
+    --edge:    #C9CDD8;
+    --edge-2:  #E2E4EA;
+
+    --social:    #B8431F;
+    --practical: #0F6259;
+    --spiritual: #5C3F97;
+
+    --good:  #16653F;
+    --hold:  #855A0B;
+    --stop:  #97301B;
+    --good-w:#DCEDE4;
+    --hold-w:#F2E9D4;
+    --stop-w:#F4E1DC;
+
+    --lift:   0 1px 2px rgba(20,22,31,.05), 0 2px 6px rgba(20,22,31,.05);
+    --lift-2: 0 4px 12px rgba(20,22,31,.10);
+
+    --display: "Palatino Linotype", Palatino, "Book Antiqua", "Iowan Old Style", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:#15171E; --card:#1E212B; --sunk:#282C38; --ink:#F0F1F5; --ink-2:#BFC4D2;
+      --ink-3:#9AA0B0; --edge:#343948; --edge-2:#272B37;
+      --social:#F2916A; --practical:#4BC3B4; --spiritual:#B79BE8;
+      --good:#6FCF98; --hold:#E0B65E; --stop:#EE9880;
+      --good-w:#16281D; --hold-w:#2A2316; --stop-w:#2C1A16;
+      --lift: 0 1px 2px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.3);
+      --lift-2: 0 4px 14px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#15171E; --card:#1E212B; --sunk:#282C38; --ink:#F0F1F5; --ink-2:#BFC4D2;
+    --ink-3:#9AA0B0; --edge:#343948; --edge-2:#272B37;
+    --social:#F2916A; --practical:#4BC3B4; --spiritual:#B79BE8;
+    --good:#6FCF98; --hold:#E0B65E; --stop:#EE9880;
+    --good-w:#16281D; --hold-w:#2A2316; --stop-w:#2C1A16;
+    --lift: 0 1px 2px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.3);
+    --lift-2: 0 4px 14px rgba(0,0,0,.45);
+  }
+  :root[data-theme="light"] {
+    --paper:#EDEEF1; --card:#FFFFFF; --sunk:#E0E2E8; --ink:#14161F; --ink-2:#3A3F4E;
+    --ink-3:#5F6575; --edge:#C9CDD8; --edge-2:#E2E4EA;
+    --social:#B8431F; --practical:#0F6259; --spiritual:#5C3F97;
+    --good:#16653F; --hold:#855A0B; --stop:#97301B;
+    --good-w:#DCEDE4; --hold-w:#F2E9D4; --stop-w:#F4E1DC;
+    --lift: 0 1px 2px rgba(20,22,31,.05), 0 2px 6px rgba(20,22,31,.05);
+    --lift-2: 0 4px 12px rgba(20,22,31,.10);
+  }
+
+  * { box-sizing: border-box; }
+
+  .page {
+    background: var(--paper); color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.6; padding: 40px 28px 132px; min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .col { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+
+  .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: .14em;
+            text-transform: uppercase; color: var(--ink-3); }
+
+  /* ---------- masthead ---------- */
+  .top { display: flex; flex-wrap: wrap; gap: 30px; align-items: flex-end; justify-content: space-between; }
+  .top h1 { font-family: var(--display); font-weight: 400; font-size: clamp(38px, 5.2vw, 56px);
+            line-height: 1.02; letter-spacing: -.02em; margin: 10px 0 0; text-wrap: balance; }
+  .top h1 em { font-style: italic; color: var(--ink-2); }
+  .top .say { margin: 14px 0 0; color: var(--ink-2); max-width: 52ch; font-size: 16px; }
+  .runinfo { font-size: 14px; color: var(--ink-3); text-align: right; line-height: 2; }
+  .runinfo b { color: var(--ink); font-weight: 600; font-family: var(--mono); font-size: 13.5px; }
+
+  /* ---------- coverage ---------- */
+  .map { background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+         box-shadow: var(--lift); padding: 24px 26px; }
+  .map h2 { font-family: var(--display); font-weight: 400; font-size: 24px; margin: 0; }
+  .map .lead { margin: 6px 0 22px; font-size: 15px; color: var(--ink-2); max-width: 72ch; }
+  .lane { display: grid; grid-template-columns: 108px 1fr; gap: 16px; align-items: center;
+          padding: 9px 0; }
+  .lane + .lane { border-top: 1px solid var(--edge-2); }
+  .lane-name { font-size: 14.5px; font-weight: 600; letter-spacing: .01em; }
+  .lane-name span { display: block; font-family: var(--mono); font-size: 12px;
+                    color: var(--ink-3); font-weight: 400; }
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 46px; }
+  .bar { flex: 1 1 0; min-width: 0; border-radius: 2px 2px 0 0; background: var(--hue);
+         position: relative; min-height: 3px; }
+  .bar.zero { background: var(--sunk); height: 3px !important; }
+  @media (prefers-reduced-motion: no-preference) {
+    .bar { animation: rise .4s cubic-bezier(.2,.9,.3,1) backwards; transform-origin: bottom; }
+    @keyframes rise { from { transform: scaleY(0); } }
+  }
+  .axis { display: flex; margin-top: 10px; padding-left: 124px; }
+  .axis span { flex: 1 1 0; font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+               letter-spacing: .1em; text-transform: uppercase; }
+  .axis span + span { border-left: 1px solid var(--edge-2); padding-left: 8px; }
+
+  /* ---------- toolbar ---------- */
+  .bar-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .seg { display: inline-flex; background: var(--sunk); border-radius: 10px; padding: 4px; gap: 3px; }
+  .seg button { font-size: 14px; font-weight: 500; border: 0; background: transparent;
+                color: var(--ink-2); padding: 9px 16px; border-radius: 7px; cursor: pointer;
+                display: inline-flex; align-items: center; gap: 8px; }
+  .seg button:hover { color: var(--ink); }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--lift); }
+  .swatch { width: 9px; height: 9px; border-radius: 50%; }
+  .push { flex: 1 1 auto; }
+
+  .tog, .act { font-size: 14px; font-weight: 500; border: 1px solid var(--edge);
+               background: var(--card); color: var(--ink-2); padding: 9px 16px;
+               border-radius: 8px; cursor: pointer; }
+  .tog:hover, .act:hover { border-color: var(--ink-3); color: var(--ink); }
+  .tog[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--card); }
+  .act.strong { background: var(--ink); border-color: var(--ink); color: var(--card); font-weight: 600; }
+  .act.strong:hover { opacity: .88; color: var(--card); }
+
+  /* ---------- streams ---------- */
+  .stream { display: flex; flex-direction: column; gap: 18px; }
+  .stream-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .stream-head h3 { font-family: var(--display); font-weight: 400; font-size: 30px; margin: 0;
+                    letter-spacing: -.015em; }
+  .stream-head .count { font-size: 14.5px; color: var(--ink-3); }
+  .stream-head .rule { flex: 1 1 40px; height: 1px; background: var(--edge); }
+  .pick-all { font-size: 13.5px; font-weight: 500; border: 1px solid var(--edge);
+              background: var(--card); color: var(--ink-2); padding: 7px 13px;
+              border-radius: 7px; cursor: pointer; white-space: nowrap; }
+  .pick-all:hover { border-color: var(--hue); color: var(--hue); }
+
+  .monthgroup { display: flex; flex-direction: column; gap: 12px; }
+  .monthlbl { font-family: var(--mono); font-size: 13px; letter-spacing: .12em;
+              text-transform: uppercase; color: var(--ink-3); display: flex;
+              align-items: center; gap: 12px; }
+  .monthlbl::after { content: ""; flex: 1; height: 1px; background: var(--edge-2); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+
+  .ev { background: var(--card); border: 1px solid var(--edge); border-radius: 10px;
+        padding: 16px 18px 14px; display: grid; grid-template-columns: 54px 1fr; gap: 14px;
+        box-shadow: var(--lift); }
+  .ev.picked { border-color: var(--good); box-shadow: 0 0 0 2px var(--good-w), var(--lift); }
+  .ev.dropped { opacity: .42; }
+  .daybox { text-align: center; border-right: 2px solid var(--hue); padding-right: 12px; }
+  .daybox b { display: block; font-size: 26px; font-weight: 600; line-height: 1;
+              letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+  .daybox span { display: block; font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+                 margin-top: 4px; text-transform: uppercase; letter-spacing: .08em; }
+  .body { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .ev-t { font-size: 16px; font-weight: 600; line-height: 1.35; text-wrap: balance; }
+  .ev-t a { color: inherit; text-decoration: none; }
+  .ev-t a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .ev-meta { font-size: 14px; color: var(--ink-2); line-height: 1.45; }
+  .ev-meta .where { color: var(--ink-3); }
+  .ev-note { font-size: 13.5px; color: var(--hold); line-height: 1.45; }
+  .ev-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 4px;
+             border-top: 1px solid var(--edge-2); margin-top: 2px; }
+  .fit { font-family: var(--mono); font-size: 13px; color: var(--ink-2); font-weight: 600;
+         font-variant-numeric: tabular-nums; }
+  .flag { font-size: 12px; padding: 3px 9px; border-radius: 20px; background: var(--sunk);
+          color: var(--ink-2); white-space: nowrap; }
+  .flag.paid { background: var(--hold-w); color: var(--hold); font-weight: 600; }
+  .flag.onair { background: var(--hold-w); color: var(--hold); font-weight: 600; }
+  .flag.check { background: var(--stop-w); color: var(--stop); font-weight: 600; }
+  .doers { display: flex; gap: 6px; margin-left: auto; }
+  .doers button { font-size: 13px; font-weight: 500; border: 1px solid var(--edge);
+                  background: transparent; color: var(--ink-2); padding: 5px 12px;
+                  border-radius: 6px; cursor: pointer; }
+  .doers button:hover { border-color: var(--ink-2); color: var(--ink); }
+  .doers button.yes { background: var(--good); border-color: var(--good); color: #fff; }
+  .doers button.no { background: var(--ink-3); border-color: var(--ink-3); color: var(--card); }
+
+  .void { border: 1px dashed var(--edge); border-radius: 10px; padding: 18px 20px;
+          font-size: 14.5px; color: var(--ink-2); line-height: 1.6; }
+
+  /* ---------- registry ---------- */
+  .reg { background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+         box-shadow: var(--lift); overflow: hidden; }
+  .reg-head { padding: 22px 26px; border-bottom: 1px solid var(--edge-2); }
+  .reg-head h2 { font-family: var(--display); font-weight: 400; font-size: 24px; margin: 0; }
+  .reg-head p { margin: 6px 0 0; font-size: 15px; color: var(--ink-2); max-width: 72ch; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 700px; }
+  th { text-align: left; padding: 12px 26px; font-size: 13px; color: var(--ink-3);
+       font-weight: 500; border-bottom: 1px solid var(--edge-2); white-space: nowrap; }
+  td { padding: 14px 26px; border-bottom: 1px solid var(--edge-2); vertical-align: middle;
+       font-size: 14.5px; }
+  tr.muted td { opacity: .5; }
+  .sname { font-weight: 600; }
+  .snote { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
+  .surl { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); max-width: 250px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 12px; padding: 4px 11px; border-radius: 20px; font-weight: 600;
+           white-space: nowrap; display: inline-block; }
+  .badge.live { background: var(--good-w); color: var(--good); }
+  .badge.blocked { background: var(--hold-w); color: var(--hold); }
+  .badge.dead { background: var(--stop-w); color: var(--stop); }
+  .badge.off { background: var(--sunk); color: var(--ink-3); }
+  .badge.queued { background: transparent; color: var(--ink-2); border: 1px dashed var(--edge); }
+
+  .addrow { display: flex; flex-wrap: wrap; gap: 10px; padding: 20px 26px; align-items: center;
+            border-top: 1px solid var(--edge-2); background: var(--sunk); }
+  input, select { font-size: 14.5px; padding: 10px 13px; border-radius: 8px;
+                  border: 1px solid var(--edge); background: var(--card); color: var(--ink); min-width: 0; }
+  input::placeholder { color: var(--ink-3); }
+  :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+  /* ---------- dock ---------- */
+  .dock { position: fixed; left: 0; right: 0; bottom: 0; background: var(--card);
+          border-top: 1px solid var(--edge); box-shadow: 0 -6px 24px rgba(0,0,0,.12); z-index: 50; }
+  .dock-in { max-width: 1180px; margin: 0 auto; padding: 16px 28px; display: flex;
+             flex-wrap: wrap; gap: 12px; align-items: center; }
+  .tally { font-size: 15px; color: var(--ink-2); }
+  .tally b { font-size: 24px; color: var(--ink); font-weight: 600;
+             font-variant-numeric: tabular-nums; }
+  .flash { font-size: 14px; color: var(--good); font-weight: 500; }
+  .flash.bad { color: var(--stop); }
+
+  .fine { font-size: 15px; color: var(--ink-2); line-height: 1.75; max-width: 76ch; }
+  .fine b { color: var(--ink); }
+  .fine code { font-family: var(--mono); font-size: 13.5px; background: var(--sunk);
+               padding: 3px 7px; border-radius: 5px; }
+
+  /* ---------- hand-off panel ---------- */
+  .veil { position: fixed; inset: 0; background: rgba(10,12,18,.55); z-index: 100;
+          display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .veil[hidden] { display: none; }
+  .sheet { background: var(--card); border: 1px solid var(--edge); border-radius: 14px;
+           box-shadow: 0 18px 50px rgba(0,0,0,.35); width: min(820px, 100%);
+           max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+  .sheet-head { padding: 20px 24px 14px; border-bottom: 1px solid var(--edge-2); }
+  .sheet-head h2 { font-family: var(--display); font-weight: 400; font-size: 24px; margin: 0; }
+  .sheet-head p { margin: 6px 0 0; font-size: 14.5px; color: var(--ink-2); max-width: 66ch; }
+  .sheet textarea { flex: 1 1 auto; margin: 0; border: 0; border-radius: 0; resize: none;
+                    font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+                    padding: 16px 24px; background: var(--paper); color: var(--ink);
+                    min-height: 260px; width: 100%; }
+  .sheet textarea:focus-visible { outline: none; }
+  .sheet-foot { padding: 14px 24px; border-top: 1px solid var(--edge-2);
+                display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .sheet-foot .hint { font-size: 13.5px; color: var(--ink-3); }
+
+  @media (max-width: 760px) {
+    .page { padding: 26px 16px 150px; }
+    .cards { grid-template-columns: 1fr; }
+    .lane { grid-template-columns: 84px 1fr; gap: 12px; }
+    .axis { padding-left: 96px; }
+    .runinfo { text-align: left; }
+    .dock-in { padding: 13px 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="page">
+<div class="col">
+
+  <header class="top">
+    <div>
+      <span class="kicker">Helping International Students</span>
+      <h1>Which __CITY__<br /><em>is worth showing up for</em></h1>
+      <p class="say">Every source crawled fresh and ranked for someone who just landed.
+         Choose what becomes a Wix draft — nothing here publishes anything.</p>
+    </div>
+    <div class="runinfo" id="runinfo"></div>
+  </header>
+
+  <section class="map">
+    <h2>Coverage</h2>
+    <p class="lead" id="mapsay"></p>
+    <div id="lanes"></div>
+    <div class="axis" id="axis"></div>
+  </section>
+
+  <div class="bar-row">
+    <div class="seg" id="segCat"></div>
+    <span class="push"></span>
+    <button class="tog" id="tFree" aria-pressed="false">Free only</button>
+    <button class="tog" id="tLive" aria-pressed="true">Include live</button>
+    <button class="tog" id="tAll" aria-pressed="false">Show everything</button>
+  </div>
+
+  <div class="bar-row">
+    <button class="act strong" id="allYes">Select everything shown</button>
+    <button class="act" id="allNo">Clear all choices</button>
+    <span class="kicker" id="selHint"></span>
+  </div>
+
+  <div id="streams" style="display:flex;flex-direction:column;gap:48px"></div>
+
+  <section class="reg">
+    <div class="reg-head">
+      <h2>Sources</h2>
+      <p>What the last crawl reached, and what it should reach next time. Switch one off to drop it
+         from future runs, or add a URL and it gets probed on the next build.</p>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Source</th><th>Feed</th><th>Stream</th><th>Last crawl</th><th>Next run</th><th></th>
+        </tr></thead>
+        <tbody id="regBody"></tbody>
+      </table>
+    </div>
+    <form class="addrow" id="addSrc">
+      <input type="text" id="nName" placeholder="Source name" style="flex:1 1 180px" required />
+      <input type="url" id="nUrl" placeholder="https://… events page or feed" style="flex:2 1 300px" required />
+      <select id="nCat">
+        <option value="practical">Practical</option>
+        <option value="social">Social</option>
+        <option value="spiritual">Spiritual</option>
+      </select>
+      <button class="act strong" type="submit">Add source</button>
+    </form>
+  </section>
+
+  <p class="fine" id="fine"></p>
+</div>
+</div>
+
+<div class="veil" id="veil" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head">
+      <h2 id="sheetTitle">Work order</h2>
+      <p id="sheetSay"></p>
+    </div>
+    <textarea id="sheetText" readonly spellcheck="false"></textarea>
+    <div class="sheet-foot">
+      <button class="act strong" id="sheetCopy">Copy to clipboard</button>
+      <button class="act" id="sheetDl">Try download</button>
+      <span class="hint" id="sheetHint">Everything is selected — Ctrl+C (Cmd+C on Mac) also works.</span>
+      <span class="push"></span>
+      <button class="act" id="sheetClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="dock"><div class="dock-in">
+  <span class="tally"><b id="cY">0</b> to draft · <span id="cN">0</span> skipped · <span id="cS">0</span> sources on</span>
+  <span class="push"></span>
+  <span class="flash" id="flash"></span>
+  <button class="act" id="bSrc">Copy sources.json</button>
+  <button class="act" id="bBrief">Copy brief</button>
+  <button class="act strong" id="bExp">Export work order</button>
+</div></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var DATA = /*__DATA__*/null;
+  if (!DATA) { document.getElementById("fine").textContent = "No data — run build_board.py first."; return; }
+
+  var CATS = [
+    { key: "social", name: "Social", hue: "var(--social)" },
+    { key: "practical", name: "Practical", hue: "var(--practical)" },
+    { key: "spiritual", name: "Spiritual", hue: "var(--spiritual)" }
+  ];
+  // Namespaced by city: the boards share an origin, and event ids restart at
+  // e0 in every city file, so a date-only key would cross-contaminate picks.
+  var KEY = "his-board-" + DATA.slug + "-" + DATA.window.from;
+  var ui = { cat: "all", free: false, live: true, all: false };
+  var picks = {}, srcOn = {}, added = [];
+
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (s) { picks = s.picks || {}; srcOn = s.srcOn || {}; added = s.added || [];
+             if (s.ui) for (var k in s.ui) ui[k] = s.ui[k]; }
+  } catch (e) {}
+  DATA.sources.forEach(function (x) { if (!(x.id in srcOn)) srcOn[x.id] = x.on; });
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify({ picks: picks, srcOn: srcOn, added: added, ui: ui })); }
+    catch (e) {}
+  }
+  function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function cat(k) { return CATS.filter(function (x) { return x.key === k; })[0]; }
+  function isFree(e) { return /^free$/i.test((e.cost || "").trim()); }
+  function allSources() {
+    return DATA.sources.concat(added.map(function (a) {
+      return { id: a.id, name: a.name, url: a.url, cat: a.cat, kind: a.kind,
+               status: "queued", detail: "added here", notes: "", on: true };
+    }));
+  }
+
+  /* -------- which events are on screen right now -------- */
+  function pool(c, month) {
+    var list = DATA.events.filter(function (e) {
+      if (e.cat !== c || e.month !== month) return false;
+      if (ui.free && !isFree(e)) return false;
+      if (!ui.live && e.live) return false;
+      return true;
+    }).sort(function (a, b) { return b.score - a.score || (a.date < b.date ? -1 : 1); });
+    return ui.all ? list : list.slice(0, DATA.topPerCell);
+  }
+  function streamPool(c) {
+    var out = [];
+    DATA.months.forEach(function (m) { out = out.concat(pool(c, m.key)); });
+    return out;
+  }
+  function shownStreams() {
+    return CATS.filter(function (c) { return ui.cat === "all" || ui.cat === c.key; });
+  }
+  function visiblePool() {
+    var out = [];
+    shownStreams().forEach(function (c) { out = out.concat(streamPool(c.key)); });
+    return out;
+  }
+
+  /* -------- coverage: weekly density, not 165 overlapping dots -------- */
+  function drawMap() {
+    var host = document.getElementById("lanes");
+    host.innerHTML = "";
+    var T0 = new Date(DATA.window.from + "T00:00:00").getTime();
+    var T1 = new Date(DATA.window.to + "T23:59:59").getTime();
+    var weeks = Math.max(1, Math.ceil((T1 - T0) / 6048e5));
+
+    CATS.forEach(function (c) {
+      var mine = DATA.events.filter(function (e) { return e.cat === c.key; });
+      var buckets = new Array(weeks).fill(0);
+      mine.forEach(function (e) {
+        var i = Math.floor((new Date(e.date + "T12:00:00").getTime() - T0) / 6048e5);
+        if (i >= 0 && i < weeks) buckets[i]++;
+      });
+      var peak = Math.max.apply(null, buckets.concat([1]));
+
+      var lane = document.createElement("div");
+      lane.className = "lane";
+      lane.style.setProperty("--hue", c.hue);
+      var picked = mine.filter(function (e) { return picks[e.id] === "y"; }).length;
+
+      lane.innerHTML =
+        '<div class="lane-name" style="color:' + c.hue + '">' + c.name +
+          "<span>" + mine.length + " found" + (picked ? " · " + picked + " picked" : "") + "</span></div>" +
+        '<div class="bars">' + buckets.map(function (n, i) {
+          var h = n ? Math.max(9, Math.round((n / peak) * 46)) : 3;
+          return '<div class="bar' + (n ? "" : " zero") + '" style="height:' + h + "px;animation-delay:" +
+                 (i * 12) + 'ms" title="week of ' +
+                 new Date(T0 + i * 6048e5).toISOString().slice(0, 10) + ": " + n + ' events"></div>';
+        }).join("") + "</div>";
+      host.appendChild(lane);
+    });
+
+    var axis = document.getElementById("axis");
+    axis.innerHTML = DATA.months.map(function (m) { return "<span>" + m.label + "</span>"; }).join("");
+
+    var empty = CATS.filter(function (c) {
+      return !DATA.events.some(function (e) { return e.cat === c.key; });
+    }).map(function (c) { return c.name.toLowerCase(); });
+    var thin = CATS.filter(function (c) {
+      var n = DATA.events.filter(function (e) { return e.cat === c.key; }).length;
+      return n > 0 && n <= 3;
+    }).map(function (c) { return c.name.toLowerCase(); });
+
+    var msg = DATA.events.length + " candidates found across " + DATA.months.length +
+              " months. Each bar is one week — flat stretches are weeks with nothing worth showing.";
+    if (empty.length) msg += " The " + empty.join(" and ") + " stream has nothing dated at all.";
+    else if (thin.length) msg += " The " + thin.join(" and ") + " stream is very thin.";
+    document.getElementById("mapsay").textContent = msg;
+  }
+
+  /* -------- streams -------- */
+  function card(e) {
+    var d = picks[e.id];
+    var el = document.createElement("article");
+    el.className = "ev" + (d === "y" ? " picked" : d === "n" ? " dropped" : "");
+    el.id = "row-" + e.id;
+    el.style.setProperty("--hue", cat(e.cat).hue);
+
+    var flags = "";
+    if (e.live) flags += '<span class="flag onair">Already on the site</span>';
+    flags += isFree(e) ? '<span class="flag">Free</span>'
+                       : '<span class="flag paid">' + esc(e.cost) + "</span>";
+    if (e.verify) flags += '<span class="flag check">Check price</span>';
+
+    el.innerHTML =
+      '<div class="daybox"><b>' + e.day + "</b><span>" + esc(e.dow) + "</span></div>" +
+      '<div class="body">' +
+        '<div class="ev-t"><a href="' + esc(e.url) + '" target="_blank" rel="noopener noreferrer">' +
+          esc(e.title) + "</a></div>" +
+        '<div class="ev-meta">' + esc(e.time || "Time on the event page") +
+          '<br /><span class="where">' + esc(e.venue) + " · " + esc(e.source) + "</span></div>" +
+        (e.verify ? '<div class="ev-note">' + esc(e.verify) + "</div>" : "") +
+        '<div class="ev-foot"><span class="fit">' + e.score + "/100 fit</span>" + flags +
+          '<span class="doers">' +
+            '<button data-p="y" data-id="' + e.id + '" class="' + (d === "y" ? "yes" : "") + '">Draft</button>' +
+            '<button data-p="n" data-id="' + e.id + '" class="' + (d === "n" ? "no" : "") + '">Skip</button>' +
+          "</span></div></div>";
+    return el;
+  }
+
+  function drawStreams() {
+    var host = document.getElementById("streams");
+    host.innerHTML = "";
+    shownStreams().forEach(function (c) {
+      var sec = document.createElement("section");
+      sec.className = "stream";
+      sec.style.setProperty("--hue", c.hue);
+      var mine = streamPool(c.key);
+      var yes = mine.filter(function (e) { return picks[e.id] === "y"; }).length;
+      var allPicked = mine.length > 0 && yes === mine.length;
+
+      var h = document.createElement("div");
+      h.className = "stream-head";
+      h.innerHTML =
+        '<h3 style="color:' + c.hue + '">' + c.name + "</h3>" +
+        '<span class="count">' + mine.length + " shown · " + yes + " to draft</span>" +
+        '<span class="rule"></span>' +
+        '<button class="pick-all" data-all="' + c.key + '">' +
+          (allPicked ? "Unselect all " + c.name : "Select all " + mine.length + " " + c.name) + "</button>";
+      sec.appendChild(h);
+
+      var any = false;
+      DATA.months.forEach(function (m) {
+        var list = pool(c.key, m.key);
+        if (!list.length) return;
+        any = true;
+        var g = document.createElement("div");
+        g.className = "monthgroup";
+        g.innerHTML = '<div class="monthlbl">' + m.label + "</div>";
+        var wrap = document.createElement("div");
+        wrap.className = "cards";
+        list.forEach(function (e) { wrap.appendChild(card(e)); });
+        g.appendChild(wrap);
+        sec.appendChild(g);
+      });
+
+      if (!any) {
+        var v = document.createElement("div");
+        v.className = "void";
+        v.innerHTML = c.key === "spiritual"
+          ? "Nothing dated in this window. Churches publish standing weekly programs — ESL classes, young-adult groups — rather than one-off dates, so this stream stays quiet unless a specific gathering is added by hand."
+          : "No event cleared the bar here. Try turning on <b>Show everything</b>, or widen the window when you rebuild.";
+        sec.appendChild(v);
+      }
+      host.appendChild(sec);
+    });
+
+    var vis = visiblePool().length;
+    document.getElementById("selHint").textContent =
+      vis + " event" + (vis === 1 ? "" : "s") + " currently shown across " +
+      shownStreams().length + " stream" + (shownStreams().length === 1 ? "" : "s");
+  }
+
+  /* -------- registry -------- */
+  function drawReg() {
+    var b = document.getElementById("regBody");
+    b.innerHTML = "";
+    allSources().forEach(function (s) {
+      var on = s.status === "queued" ? true : srcOn[s.id];
+      var tr = document.createElement("tr");
+      if (!on) tr.className = "muted";
+      tr.innerHTML =
+        '<td><div class="sname">' + esc(s.name) + "</div>" +
+          (s.notes ? '<div class="snote">' + esc(s.notes) + "</div>" : "") + "</td>" +
+        '<td><div class="surl" title="' + esc(s.url) + '">' + esc(s.url) + "</div></td>" +
+        '<td><span class="badge" style="color:' + cat(s.cat).hue + '">' + cat(s.cat).name + "</span></td>" +
+        '<td><span class="badge ' + esc(s.status) + '">' + esc(s.status) + "</span>" +
+          '<div class="snote">' + esc(s.detail || "") + "</div></td>" +
+        '<td><button class="tog" data-tog="' + esc(s.id) + '" aria-pressed="' + (on ? "true" : "false") +
+          '">' + (on ? "On" : "Off") + "</button></td>" +
+        '<td><button class="tog" data-del="' + esc(s.id) + '">Remove</button></td>';
+      b.appendChild(tr);
+    });
+  }
+
+  function drawBar() {
+    var seg = document.getElementById("segCat");
+    if (seg.childElementCount) return;
+    [{ key: "all", name: "All streams" }].concat(CATS).forEach(function (o) {
+      var b = document.createElement("button");
+      b.setAttribute("aria-pressed", String(ui.cat === o.key));
+      b.dataset.cat = o.key;
+      b.innerHTML = (o.hue ? '<span class="swatch" style="background:' + o.hue + '"></span>' : "") + o.name;
+      seg.appendChild(b);
+    });
+  }
+
+  function drawTally() {
+    var y = 0, n = 0;
+    for (var k in picks) { if (picks[k] === "y") y++; else if (picks[k] === "n") n++; }
+    document.getElementById("cY").textContent = y;
+    document.getElementById("cN").textContent = n;
+    document.getElementById("cS").textContent =
+      allSources().filter(function (s) { return s.status === "queued" || srcOn[s.id]; }).length;
+  }
+
+  function drawInfo() {
+    var when = new Date(DATA.generatedAt);
+    document.getElementById("runinfo").innerHTML =
+      "Crawled <b>" + when.toLocaleDateString("en-CA", { day: "numeric", month: "short", year: "numeric" }) +
+      "</b><br />Window <b>" + DATA.window.from + " → " + DATA.window.to + "</b><br />" +
+      "Site <b>" + DATA.site.name + "</b>";
+    document.getElementById("fine").innerHTML =
+      "<b>Rebuild any time.</b> <code>python build_board.py --months 3</code> re-crawls every source that is " +
+      "switched on and rewrites this page; the window rolls forward from the day you run it. " +
+      "<b>Fit</b> scores cost, how well it suits a newcomer, how well it suits a student, how reachable it is, " +
+      "and whether it actually helps someone meet people. " +
+      "<b>Drafts are created by the <code>his-event-drafter</code> skill</b> — export the work order, hand it to " +
+      "Claude Code, and that skill does the writing so every draft follows the site's format. " +
+      "This page never touches Wix itself.";
+  }
+
+  function redraw() { drawMap(); drawStreams(); drawTally(); }
+
+  /* -------- interaction -------- */
+  document.addEventListener("click", function (ev) {
+    var t = ev.target.closest("button");
+    if (!t) return;
+
+    if (t.dataset.p) {
+      var id = t.dataset.id;
+      picks[id] = picks[id] === t.dataset.p ? null : t.dataset.p;
+      if (!picks[id]) delete picks[id];
+      save(); redraw(); return;
+    }
+    if (t.dataset.all) {
+      var list = streamPool(t.dataset.all);
+      var everyOne = list.length > 0 && list.every(function (e) { return picks[e.id] === "y"; });
+      list.forEach(function (e) {
+        if (everyOne) delete picks[e.id]; else picks[e.id] = "y";
+      });
+      save(); redraw();
+      flash(everyOne ? "Cleared " + list.length + " " + t.dataset.all + " events."
+                     : "Selected " + list.length + " " + t.dataset.all + " events.");
+      return;
+    }
+    if (t.dataset.cat) {
+      ui.cat = t.dataset.cat;
+      Array.prototype.forEach.call(document.querySelectorAll("[data-cat]"), function (b) {
+        b.setAttribute("aria-pressed", String(b.dataset.cat === ui.cat));
+      });
+      save(); drawStreams(); return;
+    }
+    if (t.dataset.tog) { srcOn[t.dataset.tog] = !srcOn[t.dataset.tog]; save(); drawReg(); drawTally(); return; }
+    if (t.dataset.del) {
+      added = added.filter(function (a) { return a.id !== t.dataset.del; });
+      srcOn[t.dataset.del] = false;
+      save(); drawReg(); drawTally();
+      flash("Dropped from the next run. Rebuild to apply."); return;
+    }
+  });
+
+  document.getElementById("allYes").addEventListener("click", function () {
+    var list = visiblePool();
+    if (!list.length) { flash("Nothing is shown to select.", true); return; }
+    list.forEach(function (e) { picks[e.id] = "y"; });
+    save(); redraw();
+    flash("Selected all " + list.length + " events shown.");
+  });
+
+  document.getElementById("allNo").addEventListener("click", function () {
+    picks = {}; save(); redraw(); flash("Cleared every choice.");
+  });
+
+  [["tFree", "free"], ["tLive", "live"], ["tAll", "all"]].forEach(function (p) {
+    var el = document.getElementById(p[0]);
+    el.setAttribute("aria-pressed", String(ui[p[1]]));
+    el.addEventListener("click", function () {
+      ui[p[1]] = !ui[p[1]];
+      el.setAttribute("aria-pressed", String(ui[p[1]]));
+      save(); drawStreams();
+    });
+  });
+
+  document.getElementById("addSrc").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var name = document.getElementById("nName").value.trim();
+    var url = document.getElementById("nUrl").value.trim();
+    if (!name || !url) return;
+    var kind = /\/wp-json\/tribe/.test(url) ? "tribe"
+             : /format=json/.test(url) ? "sqs"
+             : /\.ics|ical/i.test(url) ? "ical" : "probe";
+    added.push({ id: "new-" + Date.now().toString(36), name: name, url: url,
+                 cat: document.getElementById("nCat").value, kind: kind });
+    save(); drawReg(); drawTally(); this.reset();
+    flash("Added. It gets probed on the next build as a " + kind + " feed.");
+  });
+
+  function flash(msg, bad) {
+    var el = document.getElementById("flash");
+    el.textContent = msg;
+    el.className = "flash" + (bad ? " bad" : "");
+    clearTimeout(flash._t);
+    flash._t = setTimeout(function () { el.textContent = ""; }, 5200);
+  }
+  function chosen() {
+    return DATA.events.filter(function (e) { return picks[e.id] === "y"; })
+      .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  }
+  function workOrder() {
+    return {
+      generatedAt: new Date().toISOString(),
+      boardBuiltAt: DATA.generatedAt,
+      site: DATA.site,
+      skill: "his-event-drafter",
+      instruction: "Hand this to the his-event-drafter skill. Create each item as a Wix DRAFT " +
+                   "(draft:true) — never publish. Registration EXTERNAL to url. Assign wixCategoryIds " +
+                   "(" + DATA.city + " + type, never " + DATA.city + " - HIS). Dedup first.",
+      window: DATA.window,
+      approved: chosen().map(function (e) {
+        return { wixTitle: e.wixTitle, date: e.date, time: e.time, timeZoneId: DATA.timeZoneId,
+                 venue: e.venue, cost: e.cost, category: e.cat, wixCategoryIds: e.wixCategoryIds,
+                 registration: { type: "EXTERNAL", url: e.url }, mainImage: e.image,
+                 draft: true, alreadyLiveOnSite: e.live, verifyFirst: e.verify || null };
+      }),
+      skipped: DATA.events.filter(function (e) { return picks[e.id] === "n"; })
+        .map(function (e) { return { title: e.title, date: e.date }; }),
+      sourcesNextRun: allSources().filter(function (s) { return s.status === "queued" || srcOn[s.id]; })
+        .map(function (s) { return { id: s.id, name: s.name, url: s.url, kind: s.kind, cat: s.cat }; }),
+      sourcesDisabled: allSources().filter(function (s) { return s.status !== "queued" && !srcOn[s.id]; })
+        .map(function (s) { return s.name; })
+    };
+  }
+  /* Getting data out of a shared page.
+     A shared artifact runs sandboxed: programmatic downloads are blocked and
+     the async clipboard API is unavailable. The one thing that always works is
+     a real text field the reader can select and copy themselves, so that is the
+     primary path; download and scripted copy are offered as bonuses. */
+  var sheetName = "export.json";
+
+  function setHint(msg) { document.getElementById("sheetHint").textContent = msg; }
+
+  function handOff(title, say, name, text) {
+    sheetName = name;
+    document.getElementById("sheetTitle").textContent = title;
+    document.getElementById("sheetSay").textContent = say;
+    setHint("Everything below is selected — press Ctrl+C (Cmd+C on Mac) to copy.");
+    var ta = document.getElementById("sheetText");
+    ta.value = text;
+    document.getElementById("veil").hidden = false;
+    setTimeout(function () {
+      ta.focus(); ta.select();
+      try { ta.setSelectionRange(0, text.length); } catch (e) {}
+    }, 30);
+  }
+
+  function closeSheet() { document.getElementById("veil").hidden = true; }
+
+  function sheetCopy() {
+    var ta = document.getElementById("sheetText");
+    ta.focus(); ta.select();
+    try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    if (ok) { setHint("Copied to your clipboard."); return; }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(ta.value).then(
+        function () { setHint("Copied to your clipboard."); },
+        function () { setHint("This page isn't allowed to copy for you — the text is selected, press Ctrl+C."); });
+      return;
+    }
+    setHint("The text is selected — press Ctrl+C to copy it.");
+  }
+
+  function sheetDownload() {
+    var text = document.getElementById("sheetText").value;
+    if (window.claude && window.claude.downloads) {
+      window.claude.downloads.save({ filename: sheetName, data: text }).then(
+        function () { setHint("Saved " + sheetName + "."); },
+        function () { setHint("The host declined the save — copy the text instead."); });
+      return;
+    }
+    try {
+      var blob = new Blob([text], { type: "application/json" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = sheetName; a.rel = "noopener";
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(url); a.remove(); }, 4000);
+      setHint("If no file appeared, downloads are blocked here — copy the text instead.");
+    } catch (e) {
+      setHint("Downloads are blocked here — copy the text instead.");
+    }
+  }
+
+  document.getElementById("sheetCopy").addEventListener("click", sheetCopy);
+  document.getElementById("sheetDl").addEventListener("click", sheetDownload);
+  document.getElementById("sheetClose").addEventListener("click", closeSheet);
+  document.getElementById("veil").addEventListener("click", function (e) {
+    if (e.target === this) closeSheet();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !document.getElementById("veil").hidden) closeSheet();
+  });
+
+  document.getElementById("bExp").addEventListener("click", function () {
+    var n = chosen().length;
+    if (!n) { flash("Choose at least one event first.", true); return; }
+    handOff("Work order · " + n + " event" + (n === 1 ? "" : "s"),
+      "Copy this and give it to Claude Code with: run /his-event-drafter on this work order. " +
+      "It creates every one as a draft — nothing is published.",
+      "his-work-order-" + DATA.slug + ".json",
+      JSON.stringify(workOrder(), null, 2));
+  });
+
+  document.getElementById("bSrc").addEventListener("click", function () {
+    var reg = allSources().map(function (s) {
+      return { id: s.id, name: s.name, kind: s.kind || "probe", url: s.url,
+               default_category: s.cat, enabled: s.status === "queued" ? true : !!srcOn[s.id],
+               notes: s.notes || "" };
+    });
+    handOff("sources.json",
+      "Save this over cities/" + DATA.slug + ".json's sources list, then rebuild to apply your changes.",
+      DATA.slug + "-sources.json",
+      JSON.stringify({ sources: reg }, null, 2));
+  });
+
+  document.getElementById("bBrief").addEventListener("click", function () {
+    var list = chosen();
+    if (!list.length) { flash("Choose at least one event first.", true); return; }
+    var out = ["Use the /his-event-drafter skill to create these as Wix DRAFTS on HIS Events.",
+               "Never publish. " + list.length + " events:", ""];
+    list.forEach(function (e) {
+      out.push("• " + e.wixTitle);
+      out.push("  " + e.date + " " + e.time + " " + DATA.timeZoneId + " · " + e.venue + " · " + e.cost);
+      out.push("  categories: " + DATA.city + " + " + DATA.city + " - " + cat(e.cat).name);
+      out.push("  registration EXTERNAL → " + e.url);
+      out.push("");
+    });
+    handOff("Brief · " + list.length + " event" + (list.length === 1 ? "" : "s"),
+      "A plain-language version of the same thing. Paste it into Claude Code.",
+      "his-brief-" + DATA.slug + ".txt",
+      out.join("\n"));
+  });
+
+  drawBar(); redraw(); drawReg(); drawInfo();
+})();
+</script>

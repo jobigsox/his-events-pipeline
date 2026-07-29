@@ -1,0 +1,123 @@
+name: Build curation boards
+
+on:
+  schedule:
+    # Mondays 07:00 America/Toronto. GitHub cron is UTC and does not follow DST,
+    # so this lands 07:00 in summer (EDT) and 06:00 in winter (EST).
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "Whole months ahead to crawl"
+        default: "3"
+        type: string
+      min_score:
+        description: "Drop anything scoring below this"
+        default: "55"
+        type: string
+  push:
+    branches: [main]
+    # Only rebuild on a push when something that changes the output changed.
+    paths:
+      - "build_board.py"
+      - "build_all.py"
+      - "template.html"
+      - "cities/**"
+      - ".github/workflows/build-boards.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: boards
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    outputs:
+      summary: ${{ steps.counts.outputs.summary }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          # no dependencies to cache - the crawler is standard library only
+
+      - name: Build every city
+        env:
+          MONTHS: ${{ inputs.months || '3' }}
+          MIN_SCORE: ${{ inputs.min_score || '55' }}
+        run: |
+          python build_all.py --months "$MONTHS" --min-score "$MIN_SCORE" 2>&1 | tee build.log
+
+      - name: Summarise what was found
+        id: counts
+        run: |
+          {
+            echo "## Curation boards rebuilt"
+            echo ""
+            echo "| City | Events | Social | Practical | Spiritual |"
+            echo "|---|---|---|---|---|"
+            python - <<'PY'
+          import glob, json, os
+          for p in sorted(glob.glob("events-*.json")):
+              slug = os.path.basename(p)[7:-5]
+              ev = json.load(open(p, encoding="utf-8"))["events"]
+              c = lambda k: sum(1 for e in ev if e["cat"] == k)
+              print("| %s | %d | %d | %d | %d |"
+                    % (slug.title(), len(ev), c("social"), c("practical"), c("spiritual")))
+          PY
+            echo ""
+            echo "<details><summary>Crawl log</summary>"
+            echo ""
+            echo '```'
+            grep -E "^  \S|kept|no parser|BLOCKED|FAILED" build.log || true
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if a source stopped working
+        run: |
+          # Sources fail soft per-city so one dead feed never loses the run, but a
+          # feed that silently returns nothing is exactly what rots unnoticed.
+          if grep -qE "FAILED|BLOCKED \(HTTP" build.log; then
+            echo "::warning::At least one source failed or was blocked - see the crawl log."
+          fi
+          if ! ls board-*.html >/dev/null 2>&1; then
+            echo "::error::No boards were produced."
+            exit 1
+          fi
+
+      - name: Bundle the boards
+        run: |
+          mkdir -p _site
+          cp index.html board-*.html _site/
+          cp events-*.json _site/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boards
+          path: _site/
+          retention-days: 30
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site/
+
+  deploy:
+    # Publishes to GitHub Pages. Delete this job if you would rather download the
+    # boards from the build artifact and keep them off the public web.
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,92 @@
+{
+  "city": "Ottawa",
+  "slug": "ottawa",
+  "timezone": "America/Toronto",
+  "wix": {
+    "site_id": "a8184ab6-cb25-4a52-8c23-1eb37f03bc6b",
+    "base": null,
+    "base_note": "NO base 'Ottawa' category exists on the site — only the three type categories. Awaiting the user's decision on creating it. Until then work orders carry the type category only.",
+    "social": "a80505a4-a8d0-42fd-b2ea-01bbbb201533",
+    "practical": "174ca97a-4015-4954-b73b-54157628efe8",
+    "spiritual": "208e0e3d-0b8e-47f4-9e8a-03fc9a7472ee",
+    "never_use": { "Ottawa - HIS": "6bb02147-dd20-4200-b427-897e60edff1c" }
+  },
+  "default_images": {
+    "social": "ff627a_27c471962388496492eb61568dda0041~mv2.png",
+    "practical": "ff627a_f1cf2e1967bd4b6cab2f85f86f661387~mv2.png",
+    "spiritual": "ff627a_702a37714e4c46acbae72e93182651b1~mv2.png"
+  },
+  "central_venue_words": ["rideau", "bank st", "elgin", "sparks", "wellington", "somerset",
+                          "byward", "main library", "centretown", "downtown", "uottawa",
+                          "university of ottawa", "carleton", "k1n", "k1p", "k2p", "k1s"],
+  "sources": [
+    { "id": "opl", "name": "Ottawa Public Library", "kind": "opl",
+      "url": "https://booking.biblioottawalibrary.ca/program?text=english",
+      "home": "https://booking.biblioottawalibrary.ca/",
+      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "pages": 12,
+      "notes": "Drupal 7 booking site, HTML scrape only — no JSON API and BiblioCommons events is switched off. Query is filtered to 'english' to surface ESL and conversation groups rather than 639 mostly-children's programs." },
+
+    { "id": "opl-newcomer", "name": "Ottawa Public Library — newcomer programs", "kind": "opl",
+      "url": "https://booking.biblioottawalibrary.ca/program?text=newcomer",
+      "home": "https://booking.biblioottawalibrary.ca/",
+      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "pages": 6,
+      "notes": "Second pass over the same site for settlement and newcomer-support sessions." },
+
+    { "id": "uottawa-intl", "name": "University of Ottawa International Office", "kind": "probe",
+      "url": "https://international.uottawa.ca/en/events",
+      "home": "https://international.uottawa.ca/", "default_category": "practical",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "No Events Calendar REST endpoint. Custom uOttawa CMS — needs a scraper. Highest-value target for this city." },
+
+    { "id": "carleton-isso", "name": "Carleton University International Student Services",
+      "kind": "probe", "url": "https://carleton.ca/isso/events/",
+      "home": "https://carleton.ca/isso/", "default_category": "practical",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "WordPress but no /wp-json/tribe endpoint; Carleton runs its own events plugin." },
+
+    { "id": "algonquin", "name": "Algonquin College", "kind": "probe",
+      "url": "https://www.algonquincollege.com/events/",
+      "home": "https://www.algonquincollege.com/", "default_category": "practical",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Not yet probed for a machine-readable feed." },
+
+    { "id": "ociso", "name": "Ottawa Community Immigrant Services Organization", "kind": "probe",
+      "url": "https://ociso.org/events-calendar/", "home": "https://ociso.org/",
+      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "notes": "Major Ottawa settlement agency. /wp-json/tribe 404s; calendar implementation not yet identified." },
+
+    { "id": "cci-ottawa", "name": "Catholic Centre for Immigrants Ottawa", "kind": "probe",
+      "url": "https://www.cciottawa.ca/events/", "home": "https://www.cciottawa.ca/",
+      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "notes": "Settlement and newcomer programs. No Events Calendar REST endpoint." },
+
+    { "id": "worldskills", "name": "World Skills Employment Centre", "kind": "probe",
+      "url": "https://worldskillsottawa.ca/events/", "home": "https://worldskillsottawa.ca/",
+      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "notes": "Employment services for newcomers. Host did not resolve on probe — recheck." },
+
+    { "id": "ottawa-city", "name": "City of Ottawa festivals and events", "kind": "manual",
+      "url": "https://ottawa.ca/en/recreation-and-parks/festivals-and-events",
+      "home": "https://ottawa.ca/", "default_category": "social",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Marquee free events entered by hand until a feed is confirmed." },
+
+    { "id": "ottawa-tourism", "name": "Ottawa Tourism events", "kind": "probe",
+      "url": "https://ottawatourism.ca/en/events", "home": "https://ottawatourism.ca/",
+      "default_category": "social", "tz": "local", "enabled": true, "image": null,
+      "notes": "Aggregates festivals city-wide; check for a feed." },
+
+    { "id": "p2c-ottawa", "name": "Power to Change — Ottawa English Corner", "kind": "manual",
+      "url": "https://p2c.com/students/", "home": "https://p2c.com/",
+      "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
+      "notes": "Already referenced by an existing Wix category ('Ottawa P2C: English Corner'), so HIS runs this. Standing weekly programme — needs hand-entered dates." },
+
+    { "id": "ottawa-gospel-hall", "name": "Ottawa Gospel Hall English Classes", "kind": "manual",
+      "url": "https://ottawa.ca/", "home": "https://ottawa.ca/",
+      "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
+      "notes": "Referenced by an existing Wix category ('Ottawa: English Language Classes Gospel Hall'). Standing weekly ESL class — needs hand-entered dates and a real URL." }
+  ],
+  "manual_events": []
+}
