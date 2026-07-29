@@ -106,14 +106,19 @@ jobs:
           retention-days: 30
 
       - uses: actions/upload-pages-artifact@v3
+        if: vars.ENABLE_PAGES == 'true'
         with:
           path: _site/
 
   deploy:
-    # Publishes to GitHub Pages. Delete this job if you would rather download the
-    # boards from the build artifact and keep them off the public web.
+    # Publishing to GitHub Pages is opt-in, because Pages on a PRIVATE repo needs
+    # a paid plan and the job would fail every run without one. To switch it on:
+    #   - make the repo public, or upgrade the plan
+    #   - Settings -> Pages -> Source = GitHub Actions
+    #   - gh variable set ENABLE_PAGES --body true
+    # Until then the boards are still available from the "boards" build artifact.
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.ENABLE_PAGES == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
