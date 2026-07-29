@@ -118,13 +118,29 @@ student 25 · reachability 15 · helps someone meet people 10.
 
 ## The workflow in claude.ai
 
-The crawler (`build_board.py`) needs a Python runtime and cannot run here. So:
+The boards rebuild themselves. GitHub Actions crawls every source weekly and
+publishes to GitHub Pages — nothing is needed from me or from Claude Code for that.
 
-1. The board is rebuilt in Claude Code (or wherever Python runs) and published.
-2. On the board, pick events and hit **Export work order** — it gives JSON.
-3. Paste that JSON here and say: *create these as Wix drafts.*
-4. I dedup, confirm the batch with you, then create each as a draft, set EXTERNAL
-   registration, assign categories, set the image, and verify each result.
+**The boards (public, no login):**
+- https://jobigsox.github.io/his-events-pipeline/
+- Toronto · Hamilton · Ottawa — `board-<city>.html`
+
+So the loop here is:
+
+1. Open the board for a city.
+2. Pick events — per-stream and global **select-all** buttons are at the top.
+3. Hit **Export work order**. It downloads `his-work-order-<city>.json`.
+4. Paste that JSON into this Project and say: *create these as Wix drafts.*
+5. I dedup against the live site, confirm the batch with you, then create each as a
+   draft, set EXTERNAL registration, assign categories, set the image, and verify
+   every result before reporting.
+
+**What I cannot do from here:** re-crawl a source or rebuild a board. If a board looks
+stale or a source has died, that is a repo change — either wait for Monday's run, or
+trigger the workflow manually from the Actions tab.
+
+**What the board cannot do:** call Wix itself. It is a plain web page, so it has no
+route to the Wix connector. It hands you a work order; the drafting happens here.
 
 Work order shape: `{ site, window, approved: [ { wixTitle, date, time, timeZoneId,
 venue, cost, category, wixCategoryIds, registration: {type, url}, mainImage, draft } ] }`
