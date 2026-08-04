@@ -150,7 +150,8 @@ def parse_tribe(src, start, end):
             "per_page": 50,
             "page": page,
         })
-        data = fetch(src["url"] + "?" + q)
+        sep = "&" if "?" in src["url"] else "?"
+        data = fetch(src["url"] + sep + q)
         pages = int(data.get("total_pages") or 1)
         for e in data.get("events", []):
             venue = ""
