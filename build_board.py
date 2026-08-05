@@ -353,8 +353,136 @@ def parse_manual(src, start, end):
     return out
 
 
+def _parse_mcmaster_date(raw):
+    """'Month D, YYYY[ @ H:MM AM[ to H:MM AM]][ to Month D, YYYY]' -> (start, end|None)."""
+    raw = raw.strip()
+    m = re.match(r"([A-Za-z]+ \d{1,2}, \d{4})\s*@\s*(\d{1,2}:\d{2}\s*[AP]M)"
+                 r"(?:\s*to\s*(\d{1,2}:\d{2}\s*[AP]M))?", raw)
+    if m:
+        date_s, t1, t2 = m.groups()
+        sd = dt.datetime.strptime(date_s + " " + t1, "%B %d, %Y %I:%M %p")
+        ed = dt.datetime.strptime(date_s + " " + t2, "%B %d, %Y %I:%M %p") if t2 else None
+        return sd, ed
+    m = re.match(r"([A-Za-z]+ \d{1,2}, \d{4})(?:\s*to\s*([A-Za-z]+ \d{1,2}, \d{4}))?", raw)
+    if m:
+        d1, d2 = m.groups()
+        sd = dt.datetime.strptime(d1, "%B %d, %Y")
+        ed = dt.datetime.strptime(d2, "%B %d, %Y") if d2 else None
+        return sd, ed
+    return None, None
+
+
+def parse_mcmaster_cards(src, start, end):
+    """Custom WordPress 'filtered items' card grid (McMaster Brighter World theme).
+
+    No REST endpoint - everything renders into one HTML page with a hidden
+    'Show more' button, so a single fetch already has the full listing."""
+    page = fetch_text(src["url"])
+    out = []
+    for chunk in page.split("<div class='col-xl-3 col-lg-6'>")[1:]:
+        m = re.search(r"<a href='([^']+)' id='post-\d+-\d+'>([^<]*)</a>", chunk)
+        if not m:
+            continue
+        url, title = m.group(1), html.unescape(m.group(2)).strip()
+        tm = re.search(r"<time>([^<]+)</time>", chunk)
+        if not tm:
+            continue
+        sd, ed = _parse_mcmaster_date(html.unescape(tm.group(1)))
+        if not sd:
+            continue
+        dm = re.search(r"<p class='card-text'>(.*?)</p>", chunk, re.S)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title, "description": strip_html(dm.group(1)) if dm else "",
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": (ed or sd).strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": "McMaster University", "cost": "Free",
+            "url": url, "image": None,
+        })
+    return out
+
+
+def parse_mohawk_drupal(src, start, end):
+    """Drupal Views 'event-list' teasers, paginated with ?page=N (0-indexed)."""
+    out = []
+    for page_no in range(0, 8):
+        sep = "&" if "?" in src["url"] else "?"
+        page = fetch_text(src["url"] + sep + "page=%d" % page_no)
+        articles = page.split("<article ")[1:]
+        if not articles:
+            break
+        for chunk in articles:
+            m = re.search(r"<h2><a href='?\"?([^'\"]+)['\"] hreflang=\"en\">([^<]*)</a></h2>", chunk)
+            if not m:
+                m = re.search(r'<h2><a href="([^"]+)" hreflang="en">([^<]*)</a></h2>', chunk)
+            if not m:
+                continue
+            url = urllib.parse.urljoin(src["url"], m.group(1))
+            title = html.unescape(m.group(2)).strip()
+            sm = re.search(r"field-event-start-time[^>]*>\s*<time datetime=\"([^\"]+)\"", chunk)
+            if not sm:
+                continue
+            em = re.search(r"field-event-end-time[^>]*>\s*<time datetime=\"([^\"]+)\"", chunk)
+            im = re.search(r"<img loading=\"lazy\" src=\"([^\"]+)\"", chunk)
+            desc = re.search(r"field--name-body[^>]*><p>(.*?)</p>", chunk, re.S)
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": title, "description": strip_html(desc.group(1)) if desc else "",
+                "start": sm.group(1), "end": em.group(1) if em else sm.group(1),
+                "utc": True, "venue": "Mohawk College", "cost": "Free",
+                "url": url,
+                "image": urllib.parse.urljoin(src["url"], im.group(1)) if im else None,
+            })
+        if len(articles) < 8:      # short page - last one
+            break
+    return out
+
+
+def parse_ticketmaster(src, start, end):
+    """Ticketmaster discovery page - events ship pre-rendered in __NEXT_DATA__."""
+    out = []
+    for page_no in range(0, 6):
+        sep = "&" if "?" in src["url"] else "?"
+        page = fetch_text(src["url"] + sep + "page=%d" % page_no)
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', page, re.S)
+        if not m:
+            break
+        data = json.loads(m.group(1))
+        queries = data["props"]["pageProps"]["initialReduxState"]["api"]["queries"]
+        ce = next((q for k, q in queries.items() if k.startswith("cityEvents(")), None)
+        events = (ce or {}).get("data", {}).get("events", [])
+        if not events:
+            break
+        for e in events:
+            sd = (e.get("dates") or {}).get("startDate")
+            if not sd:
+                continue
+            venue = e.get("venue") or {}
+            venue_name = ", ".join(
+                x for x in [venue.get("name"), venue.get("addressLineOne"), venue.get("city")] if x
+            ) or "Hamilton"
+            img = None
+            for a in e.get("artists") or []:
+                urls = (a.get("imageUrls") or {})
+                img = next(iter(urls.values()), None)
+                if img:
+                    break
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": e.get("title", "").strip(), "description": "",
+                "start": sd, "end": sd, "utc": True,
+                "venue": venue_name, "cost": "Paid",
+                "url": e.get("url"), "image": img,
+            })
+        if len(events) < 20:       # short page - last one
+            break
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
-           "communico": parse_communico, "opl": parse_opl, "probe": parse_probe}
+           "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
+           "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
+           "mcmaster_cards": parse_mcmaster_cards}
 
 
 # ---------------------------------------------------------------- assembly
@@ -406,7 +534,7 @@ def collect(sources, start, end, log):
             cat = e.get("forced_category") or classify(
                 e["title"], e.get("description", ""), src.get("default_category", "practical"))
             e.update({
-                "sd": sd, "ed": ed, "category": cat,
+                "sd": sd, "ed": ed, "category": cat, "source_kind": src.get("kind"),
                 "image": e.get("image") or src.get("image"),
             })
             e["score"] = score(e)
@@ -416,7 +544,11 @@ def collect(sources, start, end, log):
                 # otherwise be dropped despite being one of the best free nights
                 # of the year for someone new to the city.
                 e["score"] = max(e["score"], 72)
-            if e["score"] < MIN_SCORE:              # below the bar for this audience
+            # Ticketed shows never clear MIN_SCORE on cost alone (see `score`),
+            # but students still go to paid concerts/festivals - they're capped
+            # to the best few per rolling 4-week window below instead of being
+            # vetted out here.
+            if e["score"] < MIN_SCORE and src.get("kind") != "ticketmaster":
                 continue
             events.append(e)
             kept += 1
@@ -452,6 +584,23 @@ def collect(sources, start, end, log):
     for e in capped:
         k = (e["source_id"], e["title"].strip().lower(), e["sd"].strftime("%Y-%m"))
         e["repeats"] = runs[k]
+
+    # Ticketed sources (Ticketmaster etc.) get their own cadence: best 5 per
+    # rolling 4-week window, not per calendar month/category - so a handful of
+    # billed shows students would genuinely go to still surface, without their
+    # near-zero cost score letting them crowd out the free practical/social feed.
+    tm_buckets = {}
+    for e in capped:
+        if e.get("source_kind") != "ticketmaster":
+            continue
+        idx = (e["sd"].date() - start).days // 28
+        tm_buckets.setdefault(idx, []).append(e)
+    tm_keep = set()
+    for lst in tm_buckets.values():
+        lst.sort(key=lambda x: -x["score"])
+        tm_keep.update(id(e) for e in lst[:5])
+    capped = [e for e in capped
+              if e.get("source_kind") != "ticketmaster" or id(e) in tm_keep]
 
     capped.sort(key=lambda x: x["sd"])
     return capped, status
