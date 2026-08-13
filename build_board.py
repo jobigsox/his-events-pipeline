@@ -372,6 +372,48 @@ def _parse_mcmaster_date(raw):
     return None, None
 
 
+def parse_event_espresso(src, start, end):
+    """Event Espresso REST API (wp-json/ee/vX.Y.Z/...) - datetimes and events
+    are separate resources, so pull upcoming datetimes then batch-join events
+    by EVT_ID. `src["url"]` is the site's ee namespace base, e.g.
+    'https://site/wp-json/ee/v4.8.36'."""
+    dt_url = (src["url"] + "/datetimes?" + urllib.parse.urlencode({
+        "where[DTT_EVT_start][>=]": start.strftime("%Y-%m-%dT00:00:00-04:00"),
+        "order_by": "DTT_EVT_start", "order": "asc", "limit": 200,
+    }))
+    dtts = fetch(dt_url)
+    if not dtts:
+        return []
+    evt_ids = sorted({d["EVT_ID"] for d in dtts})
+    events_by_id = {}
+    for i in range(0, len(evt_ids), 8):
+        # Sucuri's WAF 403s an EVT_ID IN(...) list once it hits ~10 comma-
+        # separated values (looks like a generic "too many list args" rule) -
+        # keep batches small rather than tripping it.
+        chunk = evt_ids[i:i + 8]
+        ev_url = (src["url"] + "/events?" + urllib.parse.urlencode({
+            "where[EVT_ID][IN]": ",".join(str(x) for x in chunk), "limit": 50,
+        }))
+        for e in fetch(ev_url):
+            events_by_id[e["EVT_ID"]] = e
+
+    out = []
+    for d in dtts:
+        ev = events_by_id.get(d["EVT_ID"])
+        if not ev:
+            continue
+        desc = (ev.get("EVT_desc") or {}).get("rendered", "")
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": html.unescape(ev.get("EVT_name", "")).strip(),
+            "description": strip_html(desc)[:400],
+            "start": d["DTT_EVT_start"], "end": d.get("DTT_EVT_end") or d["DTT_EVT_start"],
+            "utc": False, "venue": src.get("default_venue", src["name"]),
+            "cost": "Paid", "url": ev.get("link"), "image": None,
+        })
+    return out
+
+
 def parse_mcmaster_cards(src, start, end):
     """Custom WordPress 'filtered items' card grid (McMaster Brighter World theme).
 
@@ -429,7 +471,11 @@ def parse_mohawk_drupal(src, start, end):
                 "source_id": src["id"], "source": src["name"],
                 "title": title, "description": strip_html(desc.group(1)) if desc else "",
                 "start": sm.group(1), "end": em.group(1) if em else sm.group(1),
-                "utc": True, "venue": "Mohawk College", "cost": "Free",
+                # The Z on these timestamps is a lie: Drupal renders the LOCAL
+                # time into the attribute and appends Z anyway. The visible text
+                # proves it -- datetime="2026-08-17T09:00:00Z" displays as
+                # "9:00 am". Treating it as real UTC shifted everything 4h early.
+                "utc": False, "venue": "Mohawk College", "cost": "Free",
                 "url": url,
                 "image": urllib.parse.urljoin(src["url"], im.group(1)) if im else None,
             })
@@ -482,7 +528,7 @@ def parse_ticketmaster(src, start, end):
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
-           "mcmaster_cards": parse_mcmaster_cards}
+           "mcmaster_cards": parse_mcmaster_cards, "event_espresso": parse_event_espresso}
 
 
 # ---------------------------------------------------------------- assembly

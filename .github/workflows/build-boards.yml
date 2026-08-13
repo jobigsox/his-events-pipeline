@@ -48,12 +48,28 @@ jobs:
           python-version: "3.12"
           # no dependencies to cache - the crawler is standard library only
 
+      # The console holds the live source registry. If it is unreachable the
+      # committed cities/*.json is used as-is and the crawl still runs.
+      - name: Sync city configs from the console
+        env:
+          CONSOLE_URL: ${{ secrets.CONSOLE_URL }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: python sync_to_console.py --export-configs
+
       - name: Build every city
         env:
           MONTHS: ${{ inputs.months || '3' }}
           MIN_SCORE: ${{ inputs.min_score || '55' }}
         run: |
           python build_all.py --months "$MONTHS" --min-score "$MIN_SCORE" 2>&1 | tee build.log
+
+      # Runs before the Pages steps so a console outage can never block the
+      # public boards from deploying.
+      - name: Push crawl results to the console
+        env:
+          CONSOLE_URL: ${{ secrets.CONSOLE_URL }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: python sync_to_console.py --ingest-events
 
       - name: Summarise what was found
         id: counts
