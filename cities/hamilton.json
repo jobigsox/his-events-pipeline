@@ -87,7 +87,7 @@
       "notes": "The Events Calendar REST feed works via ?rest_route= (pretty permalinks are off). Confirmed live with real workshop events." },
     { "id": "new-mselkh99", "name": "James North Baptist Church", "kind": "ical",
       "url": "https://jamesnorth.church/events.ics", "home": "https://jamesnorth.church/events",
-      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
+      "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
       "notes": "Ascend for Churches (Tithe.ly) platform. The 'Subscribe to Calendar' link (webcal://jamesnorth.church/events.ics -> https://jamesnorth.church/events.ics) is a clean, public, no-auth iCalendar export with already-expanded recurring VEVENTs (DTSTART/DTEND/SUMMARY/DESCRIPTION/LOCATION/URL) - confirmed working 2026-08-16, ~36KB of real dated events. kind ical is a generic stdlib .ics parser, reusable for any future source with a webcal/.ics subscribe link." },
     { "id": "new-mselpwbh", "name": "Mission Baptist Hamilton Events", "kind": "probe",
       "url": "https://www.missionbaptist.ca/events/", "home": "https://www.missionbaptist.ca/events/",
