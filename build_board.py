@@ -484,6 +484,142 @@ def parse_mohawk_drupal(src, start, end):
     return out
 
 
+def parse_ymca_drupal(src, start, end):
+    """Open Y (YMCA's shared Drupal distro) events listing - server-rendered
+    Views teasers, same family as parse_mohawk_drupal but different markup.
+    JSON:API is enabled site-wide but the 'event' bundles it exposes
+    (node--event, node--lb_event) don't carry the real listing - the actual
+    data only exists in the rendered HTML at /events."""
+    out = []
+    for page_no in range(0, 6):
+        sep = "&" if "?" in src["url"] else "?"
+        page = fetch_text(src["url"] + sep + "page=%d" % page_no)
+        rows = page.split('<div class="views-row">')[1:]
+        if not rows:
+            break
+        for chunk in rows:
+            m = re.search(r'<h3\s*>\s*<a href="([^"]+)"[^>]*>\s*<span>([^<]*)</span>', chunk)
+            if not m:
+                continue
+            url = urllib.parse.urljoin(src["url"], m.group(1))
+            title = html.unescape(m.group(2)).strip()
+            times = re.findall(r'<time datetime="([^"]+)"', chunk)
+            if not times:
+                continue
+            venue_m = re.search(r'teaser-event-location">.*?</span>\s*([^<]+?)\s*</div>', chunk, re.S)
+            desc_m = re.search(r'class="body field-item">\s*(.*?)\s*</div>', chunk, re.S)
+            img_m = re.search(r'<img [^>]*src="([^"]+)"', chunk)
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": title, "description": strip_html(desc_m.group(1)) if desc_m else "",
+                "start": times[0], "end": times[1] if len(times) > 1 else times[0],
+                # datetime attr already carries a real -04:00 offset (unlike
+                # Mohawk's mislabeled Z) - to_dt truncates to the first 19
+                # chars, which is already correct local wall time.
+                "utc": False,
+                "venue": html.unescape(venue_m.group(1)).strip() if venue_m else src["name"],
+                "cost": "Free", "url": url,
+                "image": urllib.parse.urljoin(src["url"], img_m.group(1)) if img_m else None,
+            })
+        if len(rows) < 8:          # short page - last one
+            break
+    return out
+
+
+def parse_tourism_hamilton(src, start, end):
+    """Custom WordPress theme with no REST route for its 'event' post type
+    (not even listed in /wp-json/wp/v2/types), but Yoast's auto-generated
+    /event-sitemap.xml enumerates every event page, and each page has plain
+    regex-able info__date / info__description markup."""
+    base = src["url"].rstrip("/")
+    sitemap = fetch_text(base + "/event-sitemap.xml", accept="application/xml,text/xml,*/*")
+    urls = re.findall(r"<loc>([^<]+)</loc>", sitemap)
+    out = []
+    for u in urls:
+        try:
+            page = fetch_text(u)
+        except urllib.error.HTTPError:
+            continue
+        title_m = re.search(r'banner__title-content[^>]*>([^<]+)', page)
+        date_m = re.search(r'class="info__date">\s*([^<]+?)\s*<', page)
+        if not title_m or not date_m:
+            continue
+        sd, ed = _parse_mcmaster_date(html.unescape(date_m.group(1)).strip())
+        if not sd:
+            continue
+        desc_idx = page.find('class="info__description"')
+        description = strip_html(page[desc_idx:desc_idx + 3000])[:400] if desc_idx != -1 else ""
+        img_m = re.search(r'class="event_image"[^>]*data-lazy-src="([^"]+)"', page)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": html.unescape(title_m.group(1)).strip(), "description": description,
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": (ed or sd).strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": "Hamilton", "cost": "Free",
+            "url": u, "image": img_m.group(1) if img_m else None,
+        })
+    return out
+
+
+def _unfold_ics(text):
+    """RFC 5545 line unfolding: a line starting with a space/tab continues
+    the previous line."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    out = []
+    for line in lines:
+        if line[:1] in (" ", "\t") and out:
+            out[-1] += line[1:]
+        else:
+            out.append(line)
+    return out
+
+
+def _ics_unescape(s):
+    return (s.replace("\\n", "\n").replace("\\N", "\n")
+             .replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\"))
+
+
+def _ics_datetime(raw):
+    """'20260819T130000Z' / '20260819T090000' / '20260819' -> ('Y-m-d H:M:S', is_utc)."""
+    raw = raw.strip()
+    is_utc = raw.endswith("Z")
+    raw = raw.rstrip("Z")
+    fmt = "%Y%m%dT%H%M%S" if "T" in raw else "%Y%m%d"
+    d = dt.datetime.strptime(raw, fmt)
+    return d.strftime("%Y-%m-%d %H:%M:%S"), is_utc
+
+
+def parse_ical(src, start, end):
+    """Generic .ics / webcal feed - unfolds lines and walks VEVENT blocks.
+    Works for any calendar exposing a plain iCalendar export (church ChMS
+    'subscribe' links, etc.) instead of a bespoke JSON API - no external
+    icalendar library needed, the format is simple enough for stdlib."""
+    text = fetch_text(src["url"], accept="text/calendar, */*")
+    out, cur = [], None
+    for line in _unfold_ics(text):
+        if line.startswith("BEGIN:VEVENT"):
+            cur = {}
+        elif line.startswith("END:VEVENT"):
+            if cur and cur.get("DTSTART") and cur.get("SUMMARY"):
+                sd, sd_utc = _ics_datetime(cur["DTSTART"])
+                ed, _ = _ics_datetime(cur["DTEND"]) if cur.get("DTEND") else (sd, sd_utc)
+                out.append({
+                    "source_id": src["id"], "source": src["name"],
+                    "title": _ics_unescape(cur["SUMMARY"]),
+                    "description": _ics_unescape(cur.get("DESCRIPTION", ""))[:400],
+                    "start": sd, "end": ed, "utc": sd_utc,
+                    "venue": _ics_unescape(cur.get("LOCATION", "")) or src.get("default_venue", src["name"]),
+                    "cost": "Free", "url": cur.get("URL") or src.get("home"), "image": None,
+                })
+            cur = None
+        elif cur is not None and ":" in line:
+            key, val = line.split(":", 1)
+            name = key.split(";")[0].strip().upper()
+            if name in ("DTSTART", "DTEND", "SUMMARY", "DESCRIPTION", "LOCATION", "URL"):
+                cur[name] = val
+    return out
+
+
 def parse_ticketmaster(src, start, end):
     """Ticketmaster discovery page - events ship pre-rendered in __NEXT_DATA__."""
     out = []
@@ -528,7 +664,9 @@ def parse_ticketmaster(src, start, end):
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
-           "mcmaster_cards": parse_mcmaster_cards, "event_espresso": parse_event_espresso}
+           "mcmaster_cards": parse_mcmaster_cards, "event_espresso": parse_event_espresso,
+           "ymca_drupal": parse_ymca_drupal, "tourism_hamilton": parse_tourism_hamilton,
+           "ical": parse_ical}
 
 
 # ---------------------------------------------------------------- assembly
