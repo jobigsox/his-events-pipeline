@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Rebuild every city in cities/ in one go.
 
-    python build_all.py              # 3-month window from today
-    python build_all.py --months 4   # any build_board.py flag passes through
+    python build_all.py                        # 3-month window from today
+    python build_all.py --months 4             # any build_board.py flag passes through
+    python build_all.py --only-city hamilton    # rebuild just one city
 """
 
 import datetime as dt
@@ -70,11 +71,21 @@ def write_index(slugs):
 
 
 def main():
-    slugs = sorted(f[:-5] for f in os.listdir(CITIES) if f.endswith(".json"))
-    if not slugs:
+    all_slugs = sorted(f[:-5] for f in os.listdir(CITIES) if f.endswith(".json"))
+    if not all_slugs:
         sys.exit("No city configs in cities/")
 
-    passthrough = sys.argv[1:] or ["--months", "3"]
+    args = sys.argv[1:]
+    only_city = None
+    if "--only-city" in args:
+        i = args.index("--only-city")
+        only_city = args[i + 1]
+        args = args[:i] + args[i + 2:]
+        if only_city not in all_slugs:
+            sys.exit("--only-city %r has no cities/%s.json" % (only_city, only_city))
+
+    slugs = [only_city] if only_city else all_slugs
+    passthrough = args or ["--months", "3"]
     failed = []
 
     for slug in slugs:
@@ -87,7 +98,10 @@ def main():
         if r.returncode != 0:
             failed.append(slug)
 
-    write_index([s for s in slugs if s not in failed])
+    # Always list every known city in the index, even ones not rebuilt this
+    # run, so a scoped --only-city run never drops the other cities' cards
+    # from the public boards index.
+    write_index([s for s in all_slugs if s not in failed])
 
     print("\n%d/%d built" % (len(slugs) - len(failed), len(slugs)))
     if failed:

@@ -15,6 +15,10 @@ on:
         description: "Drop anything scoring below this"
         default: "55"
         type: string
+      city:
+        description: "Only crawl this city slug (leave blank for all)"
+        default: ""
+        type: string
   push:
     branches: [main]
     # Only rebuild on a push when something that changes the output changed.
@@ -60,8 +64,13 @@ jobs:
         env:
           MONTHS: ${{ inputs.months || '3' }}
           MIN_SCORE: ${{ inputs.min_score || '55' }}
+          CITY: ${{ inputs.city || '' }}
         run: |
-          python build_all.py --months "$MONTHS" --min-score "$MIN_SCORE" 2>&1 | tee build.log
+          if [ -n "$CITY" ]; then
+            python build_all.py --only-city "$CITY" --months "$MONTHS" --min-score "$MIN_SCORE" 2>&1 | tee build.log
+          else
+            python build_all.py --months "$MONTHS" --min-score "$MIN_SCORE" 2>&1 | tee build.log
+          fi
 
       # Runs before the Pages steps so a console outage can never block the
       # public boards from deploying.
