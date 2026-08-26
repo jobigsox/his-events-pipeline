@@ -50,7 +50,7 @@ STUDENT = ("student", "campus", "grad", "undergrad", "university", "college",
 CONNECT = ("social", "meet", "mixer", "games", "festival", "dinner", "brunch",
            "community", "chat", "conversation", "welcome", "tour", "picnic",
            "bbq", "coffee", "gathering", "celebration", "concert", "film")
-EXCLUDE = ("seniors", "age 55", "0-6", "2-6", "kids", "children", "child care",
+EXCLUDE = ("senior", "age 55", "0-6", "2-6", "kids", "children", "child care",
            "earlyon", "toddler", "parent", "caregiver", "disabilit", "13-17",
            "high school", "grade ")
 
@@ -128,7 +128,18 @@ def fetch_text(url, timeout=30, accept="text/html,application/xhtml+xml,*/*"):
         "Accept-Language": "en-CA,en;q=0.9",
     })
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read().decode("utf-8", "replace")
+        raw = r.read()
+        # Blindly decoding as UTF-8 mojibakes smart quotes/dashes on sites
+        # that declare (and actually serve) a different charset, e.g.
+        # windows-1252 WordPress installs - respect the server's own header
+        # when present, only falling back to UTF-8 if it's missing or wrong.
+        charset = r.headers.get_content_charset()
+        if charset:
+            try:
+                return raw.decode(charset, "strict")
+            except (LookupError, UnicodeDecodeError):
+                pass
+        return raw.decode("utf-8", "replace")
 
 
 def fetch(url, timeout=25):
@@ -156,6 +167,8 @@ def parse_tribe(src, start, end):
         for e in data.get("events", []):
             venue = ""
             v = e.get("venue") or {}
+            if isinstance(v, list):                 # some tribe sites report multiple venues
+                v = v[0] if v and isinstance(v[0], dict) else {}
             if v:
                 venue = ", ".join(x for x in [v.get("venue"), v.get("address"), v.get("city")] if x)
             if not venue:
@@ -332,7 +345,11 @@ def parse_probe(src, start, end):
     raise NotImplementedError("no feed parser yet")
 
 
-def parse_manual(src, start, end):
+def _manual_events_for(src, start, end):
+    """manual_events entries keyed to this source_id - pulled out of
+    parse_manual so a `probe` source (no live feed) can still surface its
+    hand-typed dates instead of silently dropping them (collect() used to
+    skip probe sources before any parser ran, manual or not)."""
     out = []
     for e in CITY.get("manual_events", []):
         if e.get("source_id") != src["id"]:
@@ -351,6 +368,10 @@ def parse_manual(src, start, end):
             "verify": e.get("verify"),
         })
     return out
+
+
+def parse_manual(src, start, end):
+    return _manual_events_for(src, start, end)
 
 
 def _parse_mcmaster_date(raw):
@@ -526,6 +547,50 @@ def parse_ymca_drupal(src, start, end):
     return out
 
 
+def parse_queensu_events(src, start, end):
+    """Queen's University's campus-wide events calendar. Was a Drupal 7
+    server-rendered month-grid (kind queensu_drupal) until it migrated to a
+    React SPA sometime around 2026-08-26 - the SPA bundle exposes a clean
+    JSON API instead (found by grepping the bundle's .js for "/api/"),
+    which is strictly better than the old markup scrape: real venue and
+    end-time fields, and the whole window in one request instead of a
+    per-month walk."""
+    # This is the university's ENTIRE campus calendar - most of it is
+    # internal HR/staff programming (wellness classes, EFAP sessions,
+    # TA-training series) that repeats under a dozen tags each and would
+    # otherwise flood the practical stream at the MIN_SCORE floor. Drop it
+    # by title marker; these are Queen's own recurring internal-program
+    # brand names, not one-off titles, so the list is short and stable.
+    SKIP_TITLE_MARKERS = ("thrive 365", "efap", "(ewpb)", "test event",
+                           "teaching development series:", "on the agenda:",
+                           "feedbackfruits", "course design series")
+    base = src["url"].rstrip("/")
+    q = urllib.parse.urlencode({"start": start.isoformat(), "end": end.isoformat()})
+    data = fetch(base + "/api/events?" + q)
+    out = []
+    for e in data.get("data", []):
+        title = html.unescape(e.get("title") or "").strip()
+        if not title or any(marker in title.lower() for marker in SKIP_TITLE_MARKERS):
+            continue
+        loc = e.get("location") or {}
+        venue = loc.get("name") or e.get("otherLocation") or "Queen's University"
+        sdt, edt = e.get("startDatetime"), e.get("endDatetime")
+        if not sdt:
+            continue
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title, "description": "",
+            "start": sdt, "end": edt or sdt,
+            # startDatetime/endDatetime already carry a real -04:00/-05:00
+            # offset (not a lying Z) - to_dt truncates to the first 19
+            # chars, which is already correct local wall time.
+            "utc": False, "venue": venue, "cost": "Free",
+            "url": src.get("home", base).rstrip("/") + "/calendar/events/" + e.get("slug", ""),
+            "image": None,
+        })
+    return out
+
+
 def parse_tourism_hamilton(src, start, end):
     """Custom WordPress theme with no REST route for its 'event' post type
     (not even listed in /wp-json/wp/v2/types), but Yoast's auto-generated
@@ -666,7 +731,7 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
            "mcmaster_cards": parse_mcmaster_cards, "event_espresso": parse_event_espresso,
            "ymca_drupal": parse_ymca_drupal, "tourism_hamilton": parse_tourism_hamilton,
-           "ical": parse_ical}
+           "ical": parse_ical, "queensu_events": parse_queensu_events}
 
 
 # ---------------------------------------------------------------- assembly
@@ -697,17 +762,22 @@ def collect(sources, start, end, log):
         if src.get("kind") == "probe":
             status[src["id"]] = ("blocked", "registered, no feed parser yet")
             log("  %-34s no parser yet" % src["name"])
-            continue
-        try:
-            raw = parser(src, start, end)
-        except urllib.error.HTTPError as e:
-            status[src["id"]] = ("blocked", "HTTP %s" % e.code)
-            log("  %-34s BLOCKED (HTTP %s)" % (src["name"], e.code))
-            continue
-        except Exception as e:                      # noqa: BLE001 - fail soft per source
-            status[src["id"]] = ("dead", type(e).__name__)
-            log("  %-34s FAILED (%s)" % (src["name"], type(e).__name__))
-            continue
+            # A probe source has no live feed, but may still carry hand-typed
+            # manual_events keyed to its source_id - those must not be lost.
+            raw = _manual_events_for(src, start, end)
+            if not raw:
+                continue
+        else:
+            try:
+                raw = parser(src, start, end)
+            except urllib.error.HTTPError as e:
+                status[src["id"]] = ("blocked", "HTTP %s" % e.code)
+                log("  %-34s BLOCKED (HTTP %s)" % (src["name"], e.code))
+                continue
+            except Exception as e:                      # noqa: BLE001 - fail soft per source
+                status[src["id"]] = ("dead", type(e).__name__)
+                log("  %-34s FAILED (%s)" % (src["name"], type(e).__name__))
+                continue
 
         kept = 0
         for e in raw:
