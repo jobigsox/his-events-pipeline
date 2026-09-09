@@ -39,6 +39,15 @@ MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
 MIN_SCORE = 55      # below this it isn't worth a curator's attention
 MAX_REPEATS = 2     # occurrences kept per identical title, per source, per month
 
+# Sources whose events default to a neutral/non-free `cost` string ("Paid",
+# with no dollar amount to match the scorer's cheap-ticket regex) so they
+# never accumulate the 25 cost points a free event gets - without this
+# exemption almost everything from an aggregator like this drops below
+# MIN_SCORE on cost alone, despite being exactly the kind of real festival/
+# concert a student would go to. Capped instead to the best few per rolling
+# 4-week window, below, so they can't crowd out the free practical/social feed.
+TICKETED_KINDS = {"ticketmaster", "ottawa_tourism"}
+
 # ---------------------------------------------------------------- scoring
 
 NEWCOMER = ("newcomer", "international", "immigrant", "refugee", "settlement",
@@ -244,8 +253,20 @@ def parse_communico(src, start, end):
         # the title whether "Storytime" is for toddlers.
         if re.search(r"early years|children|kids|\(0 to|\(6 to|\(3 to|teen|tween", ages, re.I):
             continue
+        city_name = CITY.get("city", "")
         venue = ", ".join(x for x in [e.get("venue_name") or e.get("location"),
-                                      e.get("venue_room")] if x) or e.get("library") or "Hamilton"
+                                      e.get("venue_room")] if x) or e.get("library") or city_name
+        # Communico only ever returns the bare branch name (e.g. "Chinguacousy"),
+        # never the city — so central_venue_words' catch-all city-name entry
+        # (every communico city lists its own name there) never matched any
+        # branch except the rare one whose branch name happens to double as a
+        # landmark word. Appending the city here makes "every library branch
+        # in this city is reasonably reachable" true for every branch, not
+        # just the one that got lucky. (Also drops the old hardcoded
+        # "Hamilton" fallback, which was wrong for every other communico
+        # city's zero-venue edge case.)
+        if city_name and city_name.lower() not in venue.lower():
+            venue = venue + ", " + city_name
         cost = (e.get("registration_cost") or "").strip()
         out.append({
             "source_id": src["id"], "source": src["name"],
@@ -685,6 +706,147 @@ def parse_ical(src, start, end):
     return out
 
 
+def parse_libcal(src, start, end):
+    """Springshare LibCal public 'list' ajax feed - no API key needed, it's
+    the same same-origin endpoint the library's own JS calendar widget calls.
+    `src["url"]` is the LibCal base (e.g. 'https://beinspired.libcal.com'),
+    `src["cal_id"]` the numeric calendar id (the `?c=` on the calendar page).
+
+    CORRECTED 2026-09-09: `date=` scopes results to events occurring ON that
+    single day (multi-day events included via overlap) - it is NOT a month
+    or range parameter, and the `monthly=true` flag changes nothing about the
+    result set despite its name (verified empirically: identical `date`
+    returns identical results with or without it, across two different
+    LibCal tenants). The original version of this parser anchored on the 1st
+    of each month and believed one call covered that whole month - it
+    actually only ever saw whatever happened to be active on the 1st, a
+    severe undercount. One call per day in the window is the only correct
+    way to cover it; `perpage` is generously sized in case several branches
+    have concurrent events on the same day."""
+    out, seen = [], set()
+    day = start
+    while day <= end:
+        url = (src["url"].rstrip("/") + "/ajax/calendar/list?" + urllib.parse.urlencode({
+            "c": src["cal_id"], "date": day.strftime("%Y-%m-%d"), "perpage": 50,
+        }))
+        data = fetch(url)
+        for e in data.get("results") or []:
+            if e["id"] in seen:
+                continue
+            seen.add(e["id"])
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(e.get("title", "")).strip(),
+                "description": strip_html(e.get("shortdesc") or "")[:400],
+                "start": e.get("startdt"), "end": e.get("enddt") or e.get("startdt"),
+                "utc": False, "venue": e.get("location") or src.get("default_venue", src["name"]),
+                "cost": "Free", "url": e.get("url"), "image": e.get("featured_image"),
+            })
+        day += dt.timedelta(days=1)
+    return out
+
+
+def parse_carleton_events(src, start, end):
+    """Carleton University's custom Gutenberg/ACF event post type (cu_event) -
+    exposed like any other WordPress post type at /wp-json/wp/v2/cu_event, a
+    real REST API, just not the Tribe/Events-Calendar one this pipeline
+    otherwise looks for. `src["url"]` is the department's own multisite
+    wp-json collection URL, e.g.
+    'https://carleton.ca/go-isso/wp-json/wp/v2/cu_event'. Cost, building and
+    room come from ACF fields most sources don't have at all."""
+    out = []
+    for page_no in range(1, 8):
+        page = fetch(src["url"] + "?per_page=100&page=%d" % page_no)
+        if not page:
+            break
+        for e in page:
+            acf = e.get("acf") or {}
+            sd = acf.get("cu_event_start_date")
+            if not sd:
+                continue
+            venue = ", ".join(x for x in [acf.get("cu_building"), acf.get("cu_event_meeting_room")] if x) \
+                or src.get("default_venue", src["name"])
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape((e.get("title") or {}).get("rendered", "")).strip(),
+                "description": strip_html((e.get("content") or {}).get("rendered", ""))[:400],
+                "start": sd, "end": acf.get("cu_event_end_date") or sd,
+                "utc": False, "venue": venue,
+                "cost": (acf.get("cu_event_cost") or "").strip() or "Free",
+                "url": e.get("link"), "image": None,
+            })
+        if len(page) < 100:
+            break
+    return out
+
+
+def parse_ottawa_tourism(src, start, end):
+    """Drupal Views infinite-scroll card grid (same family as ymca_drupal /
+    mohawk_drupal, different markup) - ?page=N, 18 cards/page. No time-of-day
+    or cost is shown on the card, only a date - events land at midnight
+    local, and cost defaults to 'Paid' (not 'Free') since this aggregates a
+    real mix of ticketed and free events and an empty/free default would
+    give ticketed shows a false free-cost credit (same reasoning as the
+    ticketmaster parser)."""
+    out = []
+    for page_no in range(0, 40):
+        sep = "&" if "?" in src["url"] else "?"
+        page = fetch_text(src["url"] + sep + "page=%d" % page_no)
+        cards = page.split('<div class="card h-100 pb-5"')[1:]
+        if not cards:
+            break
+        for chunk in cards:
+            m = re.search(r'<h5 class="card-title"><a href="([^"]+)">([^<]*)<a?', chunk)
+            dm = re.search(r'next-date">.*?</i>&nbsp;&nbsp;([^<]+)<', chunk, re.S)
+            if not m or not dm:
+                continue
+            try:
+                sd = dt.datetime.strptime(dm.group(1).strip(), "%B %d, %Y")
+            except ValueError:
+                continue
+            desc = re.search(r'field--name-body[^"]*field__item">\s*(.*?)\s*</div>', chunk, re.S)
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(m.group(2)).strip(),
+                "description": strip_html(desc.group(1)) if desc else "",
+                "start": sd.strftime("%Y-%m-%d %H:%M:%S"), "end": sd.strftime("%Y-%m-%d %H:%M:%S"),
+                "utc": False, "venue": src.get("default_venue", "Ottawa"), "cost": "Paid",
+                "url": urllib.parse.urljoin(src["home"], m.group(1)), "image": None,
+            })
+        if len(cards) < 18:
+            break
+    return out
+
+
+def parse_mississauga_events(src, start, end):
+    """City of Mississauga's custom Event Management System REST API
+    (os-prod-api.mississauga.ca) - public, no key, found via the events-
+    calendar page's own JS. Only the /Events/Featured/<n> endpoint is used;
+    the plain /Events/Search endpoint exists but 500s on a bare GET and needs
+    a POST body this pipeline hasn't reverse-engineered."""
+    data = fetch(src["url"].rstrip("/") + "/Events/Featured/%d?groupId=%s" % (
+        src.get("featured_count", 100), src.get("group_id", 4)))
+    out = []
+    for e in data:
+        sd = e.get("startDate")
+        if not sd:
+            continue
+        url = src.get("home", "").rstrip("/")
+        if e.get("slug"):
+            url += "/events/%s?eventdate=%s&schedule=%s" % (
+                e["slug"], urllib.parse.quote(sd), e.get("scheduleId", ""))
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": html.unescape(e.get("name", "")).strip(),
+            "description": strip_html(e.get("teaser") or e.get("subtitle") or "")[:400],
+            "start": sd, "end": e.get("endDate") or sd,
+            "utc": False, "venue": e.get("venueName") or src["name"],
+            "cost": "Free", "url": url or None,
+            "image": ("https://mississauga.ca/" + e["banner"]) if e.get("banner") else None,
+        })
+    return out
+
+
 def parse_ticketmaster(src, start, end):
     """Ticketmaster discovery page - events ship pre-rendered in __NEXT_DATA__."""
     out = []
@@ -731,7 +893,9 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
            "mcmaster_cards": parse_mcmaster_cards, "event_espresso": parse_event_espresso,
            "ymca_drupal": parse_ymca_drupal, "tourism_hamilton": parse_tourism_hamilton,
-           "ical": parse_ical, "queensu_events": parse_queensu_events}
+           "ical": parse_ical, "queensu_events": parse_queensu_events,
+           "libcal": parse_libcal, "mississauga_events": parse_mississauga_events,
+           "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism}
 
 
 # ---------------------------------------------------------------- assembly
@@ -802,7 +966,7 @@ def collect(sources, start, end, log):
             # but students still go to paid concerts/festivals - they're capped
             # to the best few per rolling 4-week window below instead of being
             # vetted out here.
-            if e["score"] < MIN_SCORE and src.get("kind") != "ticketmaster":
+            if e["score"] < MIN_SCORE and src.get("kind") not in TICKETED_KINDS:
                 continue
             events.append(e)
             kept += 1
@@ -839,13 +1003,14 @@ def collect(sources, start, end, log):
         k = (e["source_id"], e["title"].strip().lower(), e["sd"].strftime("%Y-%m"))
         e["repeats"] = runs[k]
 
-    # Ticketed sources (Ticketmaster etc.) get their own cadence: best 5 per
-    # rolling 4-week window, not per calendar month/category - so a handful of
-    # billed shows students would genuinely go to still surface, without their
-    # near-zero cost score letting them crowd out the free practical/social feed.
+    # Ticketed sources (Ticketmaster, Ottawa Tourism) get their own cadence:
+    # best 5 per rolling 4-week window, not per calendar month/category - so a
+    # handful of billed shows students would genuinely go to still surface,
+    # without their near-zero cost score letting them crowd out the free
+    # practical/social feed.
     tm_buckets = {}
     for e in capped:
-        if e.get("source_kind") != "ticketmaster":
+        if e.get("source_kind") not in TICKETED_KINDS:
             continue
         idx = (e["sd"].date() - start).days // 28
         tm_buckets.setdefault(idx, []).append(e)
@@ -854,7 +1019,7 @@ def collect(sources, start, end, log):
         lst.sort(key=lambda x: -x["score"])
         tm_keep.update(id(e) for e in lst[:5])
     capped = [e for e in capped
-              if e.get("source_kind") != "ticketmaster" or id(e) in tm_keep]
+              if e.get("source_kind") not in TICKETED_KINDS or id(e) in tm_keep]
 
     capped.sort(key=lambda x: x["sd"])
     return capped, status
