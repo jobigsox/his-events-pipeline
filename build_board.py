@@ -847,6 +847,106 @@ def parse_mississauga_events(src, start, end):
     return out
 
 
+def parse_bibliocommons(src, start, end):
+    """BiblioCommons v2 (a common public-library platform - Vancouver,
+    Halifax, and others) - the events page embeds its full Redux state as
+    SSR JSON in a <script data-iso-key="_0"> block (the LAST such block on
+    the page carries the real search results; an earlier one is a lighter
+    render pass). `src["url"]` is the library's own <slug>.bibliocommons.com
+    base - found via a `https://<slug>.bibliocommons.com` link on the
+    library's own (often WordPress) marketing site when the library's public
+    domain isn't the bibliocommons.com host itself.
+
+    No working date-range filter was found - a guessed `date_range=` query
+    param is silently ignored (confirmed empirically: results are always
+    global soonest-first regardless of the param). Paginates chronologically
+    from page 1 and stops once a page's events are entirely past `end` - a
+    library system can have 100+ pages total (thousands of events across
+    every branch), but only a handful are needed for a 3-4 month window
+    since results are date-sorted. Some library systems disable the Events
+    feature entirely (a 403 page saying so) - that is a per-library
+    configuration gap, not a platform or parser problem."""
+    out = []
+    for page_no in range(1, 60):
+        page = fetch_text(src["url"].rstrip("/") + "/v2/events" + ("?page=%d" % page_no if page_no > 1 else ""))
+        idx = page.rfind('data-iso-key="_0"')
+        if idx == -1:
+            break
+        s = page.index(">", idx) + 1
+        e = page.index("</script>", s)
+        data = json.loads(page[s:e])
+        entities = data.get("entities") or {}
+        events, locations, audiences = (entities.get("events") or {}), (entities.get("locations") or {}), (entities.get("eventAudiences") or {})
+        if not events:
+            break
+        all_past_end = True
+        for ev in events.values():
+            d = ev.get("definition") or {}
+            sd_raw = d.get("start")
+            if not sd_raw:
+                continue
+            try:
+                sd_date = dt.datetime.strptime(sd_raw[:10], "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            if sd_date <= end:
+                all_past_end = False
+            if not (start <= sd_date <= end):
+                continue
+            # Structured audience names beat guessing from the title -
+            # same reasoning as Communico's `ages` field.
+            aud_names = [(audiences.get(a) or {}).get("name", "") for a in d.get("audienceIds") or []]
+            if any(re.search(r"kid|preschool|baby|toddler|\bchild", a, re.I) for a in aud_names):
+                continue
+            branch = (locations.get(d.get("branchLocationId")) or {}).get("name")
+            room = d.get("locationDetails")
+            venue = ", ".join(x for x in [branch, room] if x) or src.get("default_venue", src["name"])
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(d.get("title", "")).strip(),
+                "description": strip_html(d.get("description", ""))[:400],
+                "start": sd_raw, "end": d.get("end") or sd_raw,
+                "utc": False, "venue": venue, "cost": "Free",
+                "url": src.get("home", src["url"]), "image": None,
+            })
+        if all_past_end:
+            break
+    return out
+
+
+def parse_okanagan_events(src, start, end):
+    """Okanagan College's Drupal JSON:API 'events' content type - a normal
+    /jsonapi/node/events collection (real dates in field_event_date_range,
+    venue in field_event_location_description). `src["url"]` is the full
+    jsonapi query URL, already BETWEEN-filtered to upcoming events; follows
+    `links.next.href` for pagination, the standard JSON:API mechanism."""
+    out = []
+    url = src["url"]
+    for _ in range(10):
+        data = fetch(url)
+        for item in data.get("data") or []:
+            attrs = item.get("attributes") or {}
+            date_range = (attrs.get("field_event_date_range") or [None])[0]
+            if not date_range or not date_range.get("value"):
+                continue
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(attrs.get("title", "")).strip(),
+                "description": strip_html((attrs.get("body") or {}).get("value", ""))[:400],
+                "start": date_range["value"], "end": date_range.get("end_value") or date_range["value"],
+                "utc": False,
+                "venue": attrs.get("field_event_location_description") or src.get("default_venue", src["name"]),
+                "cost": "Free",
+                "url": urllib.parse.urljoin(src["home"], (attrs.get("path") or {}).get("alias") or ""),
+                "image": None,
+            })
+        next_link = ((data.get("links") or {}).get("next") or {}).get("href")
+        if not next_link:
+            break
+        url = next_link
+    return out
+
+
 def parse_ticketmaster(src, start, end):
     """Ticketmaster discovery page - events ship pre-rendered in __NEXT_DATA__."""
     out = []
@@ -895,7 +995,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "ymca_drupal": parse_ymca_drupal, "tourism_hamilton": parse_tourism_hamilton,
            "ical": parse_ical, "queensu_events": parse_queensu_events,
            "libcal": parse_libcal, "mississauga_events": parse_mississauga_events,
-           "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism}
+           "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
+           "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events}
 
 
 # ---------------------------------------------------------------- assembly
