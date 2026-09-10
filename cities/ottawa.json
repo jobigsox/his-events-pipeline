@@ -65,10 +65,11 @@
       "default_category": "practical", "tz": "local", "enabled": true, "image": null,
       "notes": "Settlement and newcomer programs. No Events Calendar REST endpoint. Re-checked 2026-09-09: real newcomer content (Canadian Taxes 101, Banking System 101, Workplace Culture, Navigating Social Assistance...) but the Sept-Oct calendar currently shows zero upcoming events - only a 'Past Events' list. Platform is Elementor + JetEngine dynamic listings with auto-generated per-element hash CSS classes (elementor-element-<hash>) that regenerate whenever the page is re-saved in the editor - too fragile to build a scraper against with nothing live to validate it, revisit once they post future dates." },
 
-    { "id": "worldskills", "name": "World Skills Employment Centre", "kind": "probe",
-      "url": "https://worldskillsottawa.ca/events/", "home": "https://worldskillsottawa.ca/",
-      "default_category": "practical", "tz": "local", "enabled": true, "image": null,
-      "notes": "Employment services for newcomers. Host did not resolve on probe — recheck." },
+    { "id": "worldskills", "name": "World Skills Employment Centre", "kind": "tribe",
+      "url": "https://ottawa-worldskills.org/wp-json/tribe/events/v1/events",
+      "home": "https://ottawa-worldskills.org/", "default_category": "practical",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Employment services for newcomers since 1997 (job search workshops, language training, talent matching). Registered domain (worldskillsottawa.ca) is genuinely dead (DNS NXDOMAIN, confirmed 2026-09-09) - the correct domain is ottawa-worldskills.org. WordPress + The Events Calendar, confirmed live via wp-json/tribe/events/v1/events (64 total events, 22 pages)." },
 
     { "id": "ottawa-city", "name": "City of Ottawa festivals and events", "kind": "manual",
       "url": "https://ottawa.ca/en/recreation-and-parks/festivals-and-events",

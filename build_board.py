@@ -960,7 +960,13 @@ def parse_govstack_calendar(src, start, end):
     title as plain text; Thunder Bay nests a <div data-title="..."> instead
     with no direct text), but aria-label's wording is consistent across all
     of them. No venue/description on the grid itself and no per-event page
-    fetched here (would be one extra request per event)."""
+    fetched here (would be one extra request per event).
+
+    Path casing also varies by tenant - Milton renders `/Default/Detail/`
+    (capital D) where Brantford/Thunder Bay/Kitchener use lowercase - so the
+    detail-link match is case-insensitive; a case-sensitive match silently
+    returns 0 raw events on a tenant that capitalizes it, same failure shape
+    as the aria-label-vs-inner-text trap above."""
     out, seen = [], set()
     cursor = start.replace(day=1)
     for _ in range(6):
@@ -971,7 +977,8 @@ def parse_govstack_calendar(src, start, end):
         page = fetch_text(url)
         for m in re.finditer(
             r'href="(/default/Detail/(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-[^"]+)"'
-            r'\s+aria-label="View (.+?) on \w+ \d{1,2}, \d{4} \d{1,2}:\d{2}\s*[ap]m"', page):
+            r'\s+aria-label="View (.+?) on \w+ \d{1,2}, \d{4} \d{1,2}:\d{2}\s*[ap]m"', page,
+            re.IGNORECASE):
             href, y, mo, d, hh, mi, title = m.groups()
             if href in seen:
                 continue
