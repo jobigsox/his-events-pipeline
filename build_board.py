@@ -1080,6 +1080,18 @@ def parse_okanagan_events(src, start, end):
     return out
 
 
+# City-hall governance items that GovStack calendars list alongside real
+# community events - useless to newcomers/students and, because the parser
+# defaults them to Free with no description, they otherwise sail past the
+# scorer. Kingston's calendar is ~75% this; Kitchener/Thunder Bay have a
+# few. Matched case-insensitively against the title.
+_GOVSTACK_NOISE = re.compile(
+    r'^(proclamation|flag[ -](rais|lower)|illuminat|lighting of|light up )'
+    r'|\bcommittee\b|\bcity council\b|\bcouncil meeting\b|\bcommittee of the whole\b'
+    r'|\bpolice servic\w* board\b|\bpublic (meeting|hearing|notice)\b'
+    r'|\bbudget (meeting|deliberation)', re.I)
+
+
 def parse_govstack_calendar(src, start, end):
     """eSolutionsGroup/GovStack (Umbraco-based) municipal calendar platform -
     seen on Brantford's library/city/tourism calendars, Thunder Bay's
@@ -1116,10 +1128,13 @@ def parse_govstack_calendar(src, start, end):
             if href in seen:
                 continue
             seen.add(href)
+            title = html.unescape(title).strip()
+            if _GOVSTACK_NOISE.search(title):
+                continue
             sd = "%s-%s-%s %s:%s:00" % (y, mo, d, hh, mi)
             out.append({
                 "source_id": src["id"], "source": src["name"],
-                "title": html.unescape(title).strip(), "description": "",
+                "title": title, "description": "",
                 "start": sd, "end": sd, "utc": False,
                 "venue": src.get("default_venue", src["name"]), "cost": "Free",
                 "url": src["url"].rstrip("/") + href, "image": None,
