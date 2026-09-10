@@ -779,6 +779,66 @@ def parse_ical(src, start, end):
     return out
 
 
+def parse_timely(src, start, end):
+    """Time.ly (time.ly / timely.fun) hosted SaaS calendar - used by tourism
+    boards and municipalities. The JSON events API is auth-walled (403 "not
+    authorized" to anything but the calendar's own first-render XHR), but the
+    `export?format=ics` endpoint is public and returns a plain, wide-window
+    iCalendar feed.
+
+    `src["url"]` is the public calendar page (a `calendar.time.ly/<slug>/...`
+    URL, or the org's own page that embeds the widget). The numeric calendar
+    id it needs is not the slug - it's pulled from the page (the widget's
+    asset URLs carry it: `calendar.time.ly/images/<id>/` and
+    `/api/calendars/<id>/`). Set `src["timely_id"]` to skip that lookup."""
+    cal_id = str(src.get("timely_id") or "")
+    if not cal_id:
+        page = fetch_text(src["url"])
+        m = (re.search(r"calendar\.time\.ly/images/(\d+)/", page)
+             or re.search(r"/api/calendars/(\d+)[/?]", page))
+        if not m:
+            return []
+        cal_id = m.group(1)
+
+    ics_url = ("https://calendar.time.ly/api/calendars/%s/export?format=ics"
+               "&start_date_utc=%d&end_date_utc=%d"
+               % (cal_id,
+                  int(dt.datetime(start.year, start.month, start.day).timestamp()),
+                  int(dt.datetime(end.year, end.month, end.day).timestamp()) + 86399))
+    text = fetch_text(ics_url, accept="text/calendar, */*")
+
+    out, cur = [], None
+    for line in _unfold_ics(text):
+        if line.startswith("BEGIN:VEVENT"):
+            cur = {}
+        elif line.startswith("END:VEVENT"):
+            if cur and cur.get("DTSTART") and cur.get("SUMMARY"):
+                sd, sd_utc = _ics_datetime(cur["DTSTART"])
+                ed, _ = _ics_datetime(cur["DTEND"]) if cur.get("DTEND") else (sd, sd_utc)
+                if start <= dt.date.fromisoformat(sd[:10]) <= end:
+                    out.append({
+                        "source_id": src["id"], "source": src["name"],
+                        "title": _ics_unescape(cur["SUMMARY"]),
+                        "description": strip_html(_ics_unescape(cur.get("DESCRIPTION", "")))[:400],
+                        "start": sd, "end": ed, "utc": sd_utc,
+                        "venue": strip_html(_ics_unescape(cur.get("LOCATION", "")))
+                                 or src.get("default_venue", src["name"]),
+                        # Time.ly's X-COST-TYPE is unreliable on a general
+                        # tourism calendar (Discover Sudbury has all 729 events
+                        # marked "free", incl. ticketed concerts / hockey /
+                        # symphony) - so default "Paid" like the other
+                        # aggregators and let TICKETED_KINDS cap the flood.
+                        "cost": "Paid", "url": cur.get("URL") or src.get("home"), "image": None,
+                    })
+            cur = None
+        elif cur is not None and ":" in line:
+            key, val = line.split(":", 1)
+            name = key.split(";")[0].strip().upper()
+            if name in ("DTSTART", "DTEND", "SUMMARY", "DESCRIPTION", "LOCATION", "URL"):
+                cur[name] = val
+    return out
+
+
 def parse_libcal(src, start, end):
     """Springshare LibCal public 'list' ajax feed - no API key needed, it's
     the same same-origin endpoint the library's own JS calendar widget calls.
@@ -1119,7 +1179,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "libcal": parse_libcal, "mississauga_events": parse_mississauga_events,
            "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
-           "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss}
+           "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
+           "timely": parse_timely}
 
 
 # ---------------------------------------------------------------- assembly
