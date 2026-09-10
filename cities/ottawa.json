@@ -35,10 +35,10 @@
       "notes": "Second pass over the same site for settlement and newcomer-support sessions." },
 
     { "id": "uottawa-intl", "name": "University of Ottawa International Office", "kind": "probe",
-      "url": "https://international.uottawa.ca/en/events",
-      "home": "https://international.uottawa.ca/", "default_category": "practical",
+      "url": "https://uocal.uottawa.ca/en/taxonomy/term/358/all/feed",
+      "home": "https://uocal.uottawa.ca/en/taxonomy/term/358/all", "default_category": "practical",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "No Events Calendar REST endpoint. Custom uOttawa CMS — needs a scraper. Highest-value target for this city." },
+      "notes": "Real feed FOUND 2026-09-10: uOttawa runs a dedicated events system 'uoCal' at uocal.uottawa.ca, and the International Office - Current Students taxonomy (term 358) has a Drupal RSS feed at /en/taxonomy/term/358/all/feed. BUT the uocal.uottawa.ca subdomain currently returns DNS SERVFAIL from uottawa.ca's own authoritative nameservers (confirmed via Google DoH: 'rcode=SERVFAIL ... At delegation uottawa.ca for uocal.uottawa.ca/a') - unresolvable for everyone right now, a broken delegation on uOttawa's side, not a feed we can't reach. The old registered URL international.uottawa.ca/en/events is also dead - that whole subdomain now 301s to a Francophonie landing page. Re-check when uoCal DNS is restored; when it resolves this is a plain RSS parse (probably reusable via a generic rss kind, or add uocal_rss)." },
 
     { "id": "carleton-isso", "name": "Carleton University International Student Services",
       "kind": "carleton_events",
@@ -90,7 +90,41 @@
     { "id": "ottawa-gospel-hall", "name": "Ottawa Gospel Hall English Classes", "kind": "manual",
       "url": "https://ottawa.ca/", "home": "https://ottawa.ca/",
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
-      "notes": "Referenced by an existing Wix category ('Ottawa: English Language Classes Gospel Hall'). Standing weekly ESL class — needs hand-entered dates and a real URL." }
+      "notes": "Referenced by an existing Wix category ('Ottawa: English Language Classes Gospel Hall'). Standing weekly ESL class — needs hand-entered dates and a real URL." },
+
+    { "id": "sunnyside-church", "name": "Sunnyside Church (The Table)", "kind": "sqs_rss",
+      "url": "https://www.sunnysidechurch.ca/events/",
+      "home": "https://www.sunnysidechurch.ca/", "default_category": "spiritual",
+      "default_venue": "Sunnyside Church, 58 Grosvenor Ave, Ottawa",
+      "title_filter": "the table|newcomer|refugee|international student|welcome dinner",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Old Ottawa South church near Carleton. Runs 'The Table' - a free monthly community meal (2nd Fridays, 6-9pm per the feed). Squarespace with a CALENDAR-display events collection: /events/?format=json is current-month-only with a silently-ignored month param, so parse_sqs doesn't work - added kind `sqs_rss` 2026-09-10 which takes the item list + metadata from /events/?format=rss (spans ~6 months) and layers the current month's precise times on top from the JSON feed. `title_filter` scopes it to the meal programme - without it the church's whole worship schedule (Sunday services, breakfasts, youth group) floors at ~55 on free+central-venue alone and buries the stream." },
+
+    { "id": "trinity-young-adults", "name": "Trinity Anglican Ottawa - Young Adults", "kind": "sqs_rss",
+      "url": "https://www.trinityottawa.ca/events/",
+      "home": "https://www.trinityottawa.ca/", "default_category": "spiritual",
+      "default_venue": "Trinity Anglican Church, 1230 Bank St, Ottawa",
+      "title_filter": "young adult|newcomer|refugee|international student|welcome dinner|retreat",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Church on Bank St near Billings Bridge. The young-adults programme is described on /pages/young-adults but the monthly meal isn't always posted to the public events calendar with a consistent title (the Sept 9 'Trinity Young Adults BBQ' was, retreats are, ordinary months may not be). Same Squarespace calendar-display collection as sunnyside-church - uses the `sqs_rss` kind with a `title_filter` (see that entry, added 2026-09-10); it surfaces young-adults/retreat/newcomer items as the church posts them and drops the recurring worship schedule. Contributes 0 in a month with nothing matching - that's expected, not a break." },
+
+    { "id": "volunteering-ottawa", "name": "Volunteer Ottawa", "kind": "probe",
+      "url": "https://volunteerottawa.ca/events/",
+      "home": "https://volunteerottawa.ca/", "default_category": "social",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Checked 2026-09-10: WordPress + Elementor + JetEngine (jet-engine/v2 REST routes only, no tribe/EM/MEC/custom event post type). The /events/ page is client-rendered with no ld+json, no datetime attributes, no server-side event markup - same fragile auto-hash-CSS-class pattern as CCI Ottawa (a documented dead end in the probe playbook). Also this is fundamentally a volunteer-opportunity matcher, not a dated-events calendar - low value even if scraped. Genuine dead end for now." },
+
+    { "id": "woodvale-newtocanada", "name": "Woodvale Pentecostal Church - New to Canada", "kind": "probe",
+      "url": "https://www.woodvale.ca/newtocanada",
+      "home": "https://www.woodvale.ca/", "default_category": "practical",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Checked 2026-09-10: 'Wrap Around Support' / 'New to Canada' newcomer ministry. Site is Squarespace but its events run through a Planning Center Church Center widget (woodvale.churchcenter.com/registrations/events/3479343) - Church Center's API is CORS/WAF-gated to the church's own bundled app specifically (a confirmed hard dead end in the probe playbook, no stdlib workaround). The /events/?format=rss and ?format=json Squarespace feeds return empty (that page isn't a real events collection). Needs hand-entered dates, or wait for a route into Church Center." },
+
+    { "id": "st-albans-meals", "name": "St Alban's Church - Open Table (student meals)", "kind": "probe",
+      "url": "https://stalbanschurch.ca/",
+      "home": "https://stalbanschurch.ca/", "default_category": "spiritual",
+      "tz": "local", "enabled": true, "image": null,
+      "notes": "Checked 2026-09-10: the registered URL was a diocesan news article (ottawa.anglicannews.ca), not the church. Real site is stalbanschurch.ca - WordPress + Elementor but NO events plugin at all (no tribe/EM/MEC/custom post type in wp/v2, no /events or /calendar page). 'Open Table' is a free monthly meal for students and young adults held at Centre 454 on King Edward St near uOttawa (high newcomer/student value). Recurring-only, no feed anywhere - needs hand-entered dates in manual_events, or a human to watch their bulletin/socials." }
   ],
   "manual_events": []
 }

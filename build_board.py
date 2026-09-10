@@ -233,6 +233,79 @@ def parse_sqs(src, start, end):
     return out
 
 
+def parse_sqs_rss(src, start, end):
+    """Squarespace event collection displayed as a *calendar* rather than a
+    list. `?format=json` on a calendar-display collection returns only a bare
+    array of {title,start,end,url} for the current month with no working
+    pagination (a `month=` param is silently ignored - verified across two
+    tenants), so `parse_sqs` (which wants the list-display `items[]` shape)
+    gets nothing useful.
+
+    `?format=rss` on the same collection DOES span a wide window (~6 months)
+    and carries title/description/image, but its only date is the trailing
+    `/YYYY-MM-DD` on each item's link (the <pubDate> is the post's creation
+    date, not the event's). So: take the item list + metadata from the RSS,
+    and layer the current month's precise start/end *times* on top from the
+    JSON feed where an item's date falls in that window. Events further out
+    get a date but no time (the board shows "Time on the event page").
+
+    `src["url"]` is the collection page, e.g. https://<site>/events/ .
+
+    `src["title_filter"]` (optional) is a case-insensitive regex; only items
+    whose title matches are kept. A church's Squarespace calendar carries its
+    whole worship schedule (Sunday services, Communion, weekly groups) and a
+    free event at a central address floors at ~55 with zero newcomer/student
+    signal, so a source registered for one specific programme (a monthly
+    newcomer meal, a young-adults night) needs to say so - same idea as the
+    OPL `?text=` query scoping and the queensu_events title noise filter.
+    """
+    coll = src["url"].rstrip("/")
+    keep = re.compile(src["title_filter"], re.I) if src.get("title_filter") else None
+
+    times = {}  # url-path -> (start_iso, end_iso)
+    try:
+        for e in fetch(coll + "/?format=json"):
+            u = e.get("url")
+            if u and e.get("start"):
+                times[u] = (e["start"][:19].replace("T", " "),
+                            (e.get("end") or e["start"])[:19].replace("T", " "))
+    except (json.JSONDecodeError, urllib.error.URLError, KeyError):
+        pass
+
+    xml = fetch_text(coll + "/?format=rss", accept="application/rss+xml, application/xml, */*")
+    out, seen = [], set()
+    for block in re.findall(r"<item>(.*?)</item>", xml, re.S):
+        link_m = re.search(r"<link>([^<]+)</link>", block)
+        title_m = re.search(r"<title>(.*?)</title>", block, re.S)
+        if not (link_m and title_m):
+            continue
+        path = re.sub(r"^https?://[^/]+", "", link_m.group(1).strip())
+        date_m = re.search(r"/(\d{4})-(\d{2})-(\d{2})$", path)
+        if not date_m:
+            continue
+        d = dt.date(int(date_m.group(1)), int(date_m.group(2)), int(date_m.group(3)))
+        if not (start <= d <= end) or path in seen:
+            continue
+        title = strip_html(title_m.group(1))
+        if keep and not keep.search(title):
+            continue
+        seen.add(path)
+        sd, ed = times.get(path, (d.strftime("%Y-%m-%d 00:00:00"),
+                                  d.strftime("%Y-%m-%d 00:00:00")))
+        desc_m = re.search(r"<description>(.*?)</description>", block, re.S)
+        img_m = re.search(r'<itunes:image href="([^"]+)"', block)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title,
+            "description": strip_html(desc_m.group(1))[:400] if desc_m else "",
+            "start": sd, "end": ed, "utc": False,
+            "venue": src.get("default_venue", src["name"]), "cost": "Free",
+            "url": link_m.group(1).strip(),
+            "image": img_m.group(1) if img_m else None,
+        })
+    return out
+
+
 def parse_communico(src, start, end):
     """Communico / libnet calendar (Hamilton Public Library and friends).
 
@@ -1046,7 +1119,7 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "libcal": parse_libcal, "mississauga_events": parse_mississauga_events,
            "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
-           "govstack_calendar": parse_govstack_calendar}
+           "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss}
 
 
 # ---------------------------------------------------------------- assembly
