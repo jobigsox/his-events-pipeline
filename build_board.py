@@ -839,6 +839,93 @@ def parse_timely(src, start, end):
     return out
 
 
+# Engage "theme" -> our stream. Only the unambiguous ones force a category;
+# everything else falls through to the keyword classifier + source default.
+_ENGAGE_THEME_CAT = {
+    "Spirituality": "spiritual",
+    "ThoughtfulLearning": "practical",
+    "GroupBusiness": "practical",
+    "Social": "social",
+    "Cultural": "social",
+    "Athletics": "social",
+}
+
+
+def parse_campuslabs_engage(src, start, end):
+    """Modern Campus Engage (formerly CampusLabs / "Anthology Engage") - the
+    student-involvement platform behind hundreds of North-American campuses.
+    Schools front it on a vanity domain (NAIT = ookslife.ca) but the
+    discovery API is same-origin and unauthenticated:
+
+        <base>/api/discovery/event/search?endsAfter=<ISO-Z>
+               &orderByField=endsOn&orderByDirection=ascending
+               &status=Approved&take=100&skip=<n>
+
+    Results are already scoped to the one institution (the vanity host maps to
+    one Engage community), so no per-school filter is needed - but a general
+    student-life feed is noisy, so `src["org_filter"]` (optional, case-
+    insensitive regex) keeps only events whose organisation *or* title matches
+    it (NAIT: "immigration|international|intercultural|newcomer").
+
+    `startsOn` / `endsOn` come back as UTC with a `+00:00`/`Z` suffix; the
+    pipeline's `to_dt(utc=True)` only knows the Toronto offset, so we localise
+    here instead using `src["tz_offset"]` (hours, e.g. -6 for Edmonton) and
+    emit naive local time."""
+    base = src["url"].rstrip("/")
+    keep = re.compile(src["org_filter"], re.I) if src.get("org_filter") else None
+    off = dt.timedelta(hours=src.get("tz_offset", 0))
+    ends_after = dt.datetime(start.year, start.month, start.day).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out, skip = [], 0
+    for _ in range(12):                     # <=1200 events; plenty for a 3-month window
+        q = urllib.parse.urlencode({
+            "endsAfter": ends_after, "orderByField": "endsOn",
+            "orderByDirection": "ascending", "status": "Approved",
+            "take": 100, "skip": skip,
+        })
+        data = fetch(base + "/api/discovery/event/search?" + q)
+        rows = data.get("value") or []
+        if not rows:
+            break
+        for e in rows:
+            raw_start = (e.get("startsOn") or "")[:19]
+            if not raw_start:
+                continue
+            try:
+                sd = dt.datetime.strptime(raw_start, "%Y-%m-%dT%H:%M:%S") + off
+            except ValueError:
+                continue
+            if sd.date() > end:
+                continue                    # sorted by endsOn, not startsOn - keep scanning
+            org = e.get("organizationName") or ""
+            if keep and not (keep.search(org) or keep.search(e.get("name") or "")):
+                continue
+            ed_raw = (e.get("endsOn") or "")[:19]
+            try:
+                ed = dt.datetime.strptime(ed_raw, "%Y-%m-%dT%H:%M:%S") + off
+            except ValueError:
+                ed = sd
+            loc = (e.get("location") or "").strip()
+            img = e.get("imagePath")
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": (e.get("name") or "").strip(),
+                "description": strip_html(e.get("description", ""))[:400],
+                "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+                "end": ed.strftime("%Y-%m-%d %H:%M:%S"), "utc": False,
+                "venue": (src.get("default_venue", src["name"]) if loc.lower() == "online"
+                          else loc or src.get("default_venue", src["name"])),
+                "cost": "Free",
+                "forced_category": _ENGAGE_THEME_CAT.get(e.get("theme")),
+                "url": "%s/event/%s" % (base, e.get("id")),
+                "image": ("https://se-images.campuslabs.ca/clink/images/%s?preset=med-w" % img
+                          if img else None),
+            })
+        if len(rows) < 100:
+            break
+        skip += 100
+    return out
+
+
 def parse_libcal(src, start, end):
     """Springshare LibCal public 'list' ajax feed - no API key needed, it's
     the same same-origin endpoint the library's own JS calendar widget calls.
@@ -1195,7 +1282,7 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
-           "timely": parse_timely}
+           "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage}
 
 
 # ---------------------------------------------------------------- assembly
