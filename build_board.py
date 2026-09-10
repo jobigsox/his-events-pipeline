@@ -926,6 +926,65 @@ def parse_campuslabs_engage(src, start, end):
     return out
 
 
+def parse_supabase_events(src, start, end):
+    """A community-events site built on Supabase, read straight off its public
+    PostgREST API at `<project>.supabase.co/rest/v1/<table>`. The anon key is
+    *meant* to be public - it ships in the site's own JS bundle and Supabase
+    gates data with row-level security, not key secrecy - so committing it in
+    `src["api_key"]` is fine (note it in the source's notes anyway).
+
+    Shaped for a HalifaxEvents.ca-style `events` table: `start_date`/`end_date`
+    (timestamptz), `title`, `short_description`/`description`, `venue_name`,
+    `venue_address`, `is_free` (bool), `price_info`, `external_url`,
+    `image_url` (a bare storage path), `status`. Overrides: `src["table"]`,
+    `src["image_bucket"]` (prefixes `image_url` with the public storage URL).
+
+    These aggregators scrape Eventbrite etc. and their event *times* are
+    unreliable (a bar's music-bingo night stamped 02:00), so only the date is
+    trusted - start time defaults to midnight. Cost is the `is_free` boolean;
+    paid events then lean on `MIN_SCORE` rather than a blanket exemption, since
+    a general what's-on feed is mostly concerts, not newcomer programming."""
+    key = src["api_key"]
+    base = src["url"].rstrip("/")
+    q = urllib.parse.urlencode({
+        "select": "title,short_description,description,venue_name,venue_address,"
+                  "start_date,end_date,is_free,price_info,external_url,image_url,status,slug",
+        "start_date": "gte." + start.isoformat(),
+        "order": "start_date.asc",
+    }) + "&start_date=lte." + end.isoformat()
+    req = urllib.request.Request(
+        "%s/rest/v1/%s?%s" % (base, src.get("table", "events"), q),
+        headers={"User-Agent": UA, "Accept": "application/json",
+                 "apikey": key, "Authorization": "Bearer " + key})
+    with urllib.request.urlopen(req, timeout=25) as r:
+        rows = json.loads(r.read().decode("utf-8"))
+    bucket = src.get("image_bucket")
+    out = []
+    for e in rows:
+        if e.get("status") not in (None, "approved", "published", "active", "live"):
+            continue
+        raw = (e.get("start_date") or "")[:10]
+        if not raw:
+            continue
+        loc = ", ".join(x for x in (e.get("venue_name"), e.get("venue_address")) if x)
+        img = e.get("image_url")
+        if img and bucket and not img.startswith("http"):
+            img = "%s/storage/v1/object/public/%s/%s" % (base, bucket, img)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": (e.get("title") or "").strip(),
+            "description": strip_html(e.get("short_description") or e.get("description") or "")[:400],
+            "start": raw + " 00:00:00",
+            "end": ((e.get("end_date") or "")[:10] or raw) + " 00:00:00",
+            "utc": False,
+            "venue": loc or src.get("default_venue", src["name"]),
+            "cost": "Free" if e.get("is_free") else "Paid",
+            "url": e.get("external_url") or src.get("home"),
+            "image": img if (img and img.startswith("http")) else None,
+        })
+    return out
+
+
 def parse_libcal(src, start, end):
     """Springshare LibCal public 'list' ajax feed - no API key needed, it's
     the same same-origin endpoint the library's own JS calendar widget calls.
@@ -1282,7 +1341,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
-           "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage}
+           "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
+           "supabase_events": parse_supabase_events}
 
 
 # ---------------------------------------------------------------- assembly
