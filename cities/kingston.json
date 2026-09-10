@@ -34,7 +34,7 @@
       "url": "https://quic.queensu.ca/event-calendar",
       "home": "https://quic.queensu.ca/", "default_category": "practical",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "The single best-fit source for this city (international student social events, orientation, world-link programming) but its own /event-calendar page is a client-rendered filter widget with no event data or feed in the server HTML - confirmed 2026-08-26. QUIC's events likely also post to queensu-eventscalendar above; worth checking for duplicates. Its most-cited events (Welcome Week, Winter Welcome Days) are hand-entered in manual_events below since they recur every term on well-known dates." },
+      "notes": "The single best-fit source for this city, but a genuine dead end for a QUIC-scoped feed. Its own /event-calendar page is a client-rendered filter widget with no feed. Re-checked 2026-09-10: the Queen's campus events API (www.queensu.ca/eventscalendar/api/events, what the queensu_events parser uses) ignores every unit=/organizer= filter value tried and its event objects carry no host/unit field - so QUIC events can't be isolated from the whole-campus feed. Kingston already runs that whole-campus calendar as the queensu-eventscalendar source (with a noise filter), so any QUIC events posted there are already captured; a separate QUIC source would only duplicate. Welcome Week / Winter Welcome Days stay hand-entered in manual_events." },
     { "id": "st-lawrence-college", "name": "St. Lawrence College", "kind": "manual",
       "url": "https://www.stlawrencecollege.ca/services/student-life/new-students/international-welcome-session",
       "home": "https://www.stlawrencecollege.ca/", "default_category": "practical",
