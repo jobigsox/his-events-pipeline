@@ -947,6 +947,48 @@ def parse_okanagan_events(src, start, end):
     return out
 
 
+def parse_govstack_calendar(src, start, end):
+    """eSolutionsGroup/GovStack (Umbraco-based) municipal calendar platform -
+    seen on Brantford's library/city/tourism calendars, Thunder Bay's
+    city/tourism calendars, and Waterloo/Kitchener's city calendars, all the
+    same vendor (same appId across tenants). Server-rendered month grid at
+    <base>/default/Month?StartDate=MM/DD/YYYY; no separate API needed. Each
+    event's own detail link encodes its start date+time in the URL itself
+    (/default/Detail/YYYY-MM-DD-HHMM-slug). The title comes from the link's
+    `aria-label` ("View <title> on <date> <time>"), not its inner HTML -
+    tenants render the inside of the <a> differently (Brantford has the
+    title as plain text; Thunder Bay nests a <div data-title="..."> instead
+    with no direct text), but aria-label's wording is consistent across all
+    of them. No venue/description on the grid itself and no per-event page
+    fetched here (would be one extra request per event)."""
+    out, seen = [], set()
+    cursor = start.replace(day=1)
+    for _ in range(6):
+        if cursor > end:
+            break
+        url = (src["url"].rstrip("/") + "/default/Month?StartDate=%02d/01/%d"
+               % (cursor.month, cursor.year))
+        page = fetch_text(url)
+        for m in re.finditer(
+            r'href="(/default/Detail/(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-[^"]+)"'
+            r'\s+aria-label="View (.+?) on \w+ \d{1,2}, \d{4} \d{1,2}:\d{2}\s*[ap]m"', page):
+            href, y, mo, d, hh, mi, title = m.groups()
+            if href in seen:
+                continue
+            seen.add(href)
+            sd = "%s-%s-%s %s:%s:00" % (y, mo, d, hh, mi)
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(title).strip(), "description": "",
+                "start": sd, "end": sd, "utc": False,
+                "venue": src.get("default_venue", src["name"]), "cost": "Free",
+                "url": src["url"].rstrip("/") + href, "image": None,
+            })
+        # advance one calendar month
+        cursor = (cursor.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+    return out
+
+
 def parse_ticketmaster(src, start, end):
     """Ticketmaster discovery page - events ship pre-rendered in __NEXT_DATA__."""
     out = []
@@ -996,7 +1038,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "ical": parse_ical, "queensu_events": parse_queensu_events,
            "libcal": parse_libcal, "mississauga_events": parse_mississauga_events,
            "carleton_events": parse_carleton_events, "ottawa_tourism": parse_ottawa_tourism,
-           "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events}
+           "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
+           "govstack_calendar": parse_govstack_calendar}
 
 
 # ---------------------------------------------------------------- assembly
