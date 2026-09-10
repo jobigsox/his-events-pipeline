@@ -92,7 +92,7 @@
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
       "notes": "Referenced by an existing Wix category ('Ottawa: English Language Classes Gospel Hall'). Standing weekly ESL class — needs hand-entered dates and a real URL." },
 
-    { "id": "sunnyside-church", "name": "Sunnyside Church (The Table)", "kind": "sqs_rss",
+    { "id": "sunnyside-church-the-table-p59g", "name": "Sunnyside Church (The Table)", "kind": "sqs_rss",
       "url": "https://www.sunnysidechurch.ca/events/",
       "home": "https://www.sunnysidechurch.ca/", "default_category": "spiritual",
       "default_venue": "Sunnyside Church, 58 Grosvenor Ave, Ottawa",
@@ -100,7 +100,7 @@
       "tz": "local", "enabled": true, "image": null,
       "notes": "Old Ottawa South church near Carleton. Runs 'The Table' - a free monthly community meal (2nd Fridays, 6-9pm per the feed). Squarespace with a CALENDAR-display events collection: /events/?format=json is current-month-only with a silently-ignored month param, so parse_sqs doesn't work - added kind `sqs_rss` 2026-09-10 which takes the item list + metadata from /events/?format=rss (spans ~6 months) and layers the current month's precise times on top from the JSON feed. `title_filter` scopes it to the meal programme - without it the church's whole worship schedule (Sunday services, breakfasts, youth group) floors at ~55 on free+central-venue alone and buries the stream." },
 
-    { "id": "trinity-young-adults", "name": "Trinity Anglican Ottawa - Young Adults", "kind": "sqs_rss",
+    { "id": "trinity-ottawa-monthly-meals-for-nb56", "name": "Trinity Anglican Ottawa - Young Adults", "kind": "sqs_rss",
       "url": "https://www.trinityottawa.ca/events/",
       "home": "https://www.trinityottawa.ca/", "default_category": "spiritual",
       "default_venue": "Trinity Anglican Church, 1230 Bank St, Ottawa",
@@ -108,19 +108,19 @@
       "tz": "local", "enabled": true, "image": null,
       "notes": "Church on Bank St near Billings Bridge. The young-adults programme is described on /pages/young-adults but the monthly meal isn't always posted to the public events calendar with a consistent title (the Sept 9 'Trinity Young Adults BBQ' was, retreats are, ordinary months may not be). Same Squarespace calendar-display collection as sunnyside-church - uses the `sqs_rss` kind with a `title_filter` (see that entry, added 2026-09-10); it surfaces young-adults/retreat/newcomer items as the church posts them and drops the recurring worship schedule. Contributes 0 in a month with nothing matching - that's expected, not a break." },
 
-    { "id": "volunteering-ottawa", "name": "Volunteer Ottawa", "kind": "probe",
+    { "id": "volunteering-ottawa-cf7s", "name": "Volunteer Ottawa", "kind": "probe",
       "url": "https://volunteerottawa.ca/events/",
       "home": "https://volunteerottawa.ca/", "default_category": "social",
       "tz": "local", "enabled": true, "image": null,
       "notes": "Checked 2026-09-10: WordPress + Elementor + JetEngine (jet-engine/v2 REST routes only, no tribe/EM/MEC/custom event post type). The /events/ page is client-rendered with no ld+json, no datetime attributes, no server-side event markup - same fragile auto-hash-CSS-class pattern as CCI Ottawa (a documented dead end in the probe playbook). Also this is fundamentally a volunteer-opportunity matcher, not a dated-events calendar - low value even if scraped. Genuine dead end for now." },
 
-    { "id": "woodvale-newtocanada", "name": "Woodvale Pentecostal Church - New to Canada", "kind": "probe",
+    { "id": "woodvale-wrap-around-support-fwss", "name": "Woodvale Pentecostal Church - New to Canada", "kind": "probe",
       "url": "https://www.woodvale.ca/newtocanada",
       "home": "https://www.woodvale.ca/", "default_category": "practical",
       "tz": "local", "enabled": true, "image": null,
       "notes": "Checked 2026-09-10: 'Wrap Around Support' / 'New to Canada' newcomer ministry. Site is Squarespace but its events run through a Planning Center Church Center widget (woodvale.churchcenter.com/registrations/events/3479343) - Church Center's API is CORS/WAF-gated to the church's own bundled app specifically (a confirmed hard dead end in the probe playbook, no stdlib workaround). The /events/?format=rss and ?format=json Squarespace feeds return empty (that page isn't a real events collection). Needs hand-entered dates, or wait for a route into Church Center." },
 
-    { "id": "st-albans-meals", "name": "St Alban's Church - Open Table (student meals)", "kind": "probe",
+    { "id": "st-albans-meals-ee21", "name": "St Alban's Church - Open Table (student meals)", "kind": "probe",
       "url": "https://stalbanschurch.ca/",
       "home": "https://stalbanschurch.ca/", "default_category": "spiritual",
       "tz": "local", "enabled": true, "image": null,
