@@ -66,7 +66,9 @@
     { "id": "ebes-sherbrooke", "name": "Église Baptiste Évangélique de Sherbrooke (EBES)", "kind": "manual",
       "url": "https://ebes.org/", "home": "https://ebes.org/",
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
-      "notes": "French-language evangelical church (930 Rue du Haut-Bois S), Sunday service 10am - included as the fallback spiritual option since French is the dominant language for most Sherbrooke newcomers, unlike Montreal. No ESL/international ministry mentioned, no dated events, and the site sits behind Cloudflare (403 on ?format=json / wp-json probes) so no feed either way. Left with an empty manual event list." }
+      "notes": "French-language evangelical church (930 Rue du Haut-Bois S), Sunday service 10am - included as the fallback spiritual option since French is the dominant language for most Sherbrooke newcomers, unlike Montreal. No ESL/international ministry mentioned, no dated events, and the site sits behind Cloudflare (403 on ?format=json / wp-json probes) so no feed either way. Left with an empty manual event list." },
+    {"id": "carnaval-de-sherbrooke", "name": "Carnaval de Sherbrooke", "kind": "manual", "url": "https://www.carnavaldesherbrooke.com/", "home": "https://www.carnavaldesherbrooke.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Carnaval de Sherbrooke' (Jan-Feb) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "sherbrooke-festivals", "name": "Sherbrooke civic festivals (hand-entered)", "kind": "manual", "url": "https://www.sherbrooke.ca/", "home": "https://www.sherbrooke.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19: hand-entered dated civic festivals (the city calendar itself is a probe). Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."}
   ],
   "manual_events": [
     { "source_id": "marche-gare", "title": "Marché de Noël - Marché de la Gare de Sherbrooke",
@@ -83,6 +85,7 @@
       "start": "2026-09-05T09:00:00", "end": "2026-09-11T17:00:00",
       "category": "practical", "venue": "Bishop's University, Lennoxville",
       "cost": "Free", "url": "https://www.ubishops.ca/student-services/bishops-orientation/",
-      "already_live": false, "verify": "Fall O-Week runs Sept 5-11 2026 school-wide; the international-specific welcome activities within it weren't itemized with times - confirm the international program's exact sessions (contact: Serena, Transition and Retention Advisor) before drafting." }
+      "already_live": false, "verify": "Fall O-Week runs Sept 5-11 2026 school-wide; the international-specific welcome activities within it weren't itemized with times - confirm the international program's exact sessions (contact: Serena, Transition and Retention Advisor) before drafting." },
+    {"source_id": "sherbrooke-festivals", "title": "Défilé du Père Noël de Sherbrooke", "start": "2026-11-29T13:00:00", "category": "social", "venue": "Downtown Sherbrooke", "cost": "Free", "url": "https://www.sherbrooke.ca/", "already_live": false, "verify": "Start time and route not confirmed."}
   ]
 }

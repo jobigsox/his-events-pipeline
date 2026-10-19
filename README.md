@@ -94,6 +94,23 @@ human already vetted them — without it, marquee events like Nuit Blanche score
 `probe` is deliberate. A source we cannot read yet stays visible as a to-do rather
 than quietly vanishing.
 
+## Sources only ever grow
+
+The console database and `cities/<slug>.json` are kept as a **union**, never a
+replacement. Every run:
+
+1. `sync_to_console.py --export-configs` first pushes any source or manual
+   event in the committed file that the console doesn't have yet. Add-only: it
+   never edits a console row, and never revives one that was removed.
+2. It then merges the console's registry with the committed file. Console rows
+   win on conflicts, file-only rows are kept.
+3. A source leaves the crawl in exactly one way: **Remove** in the console. That
+   leaves a tombstone (`Source.removedAt`), the export lists it under
+   `removed_sources`, and the merge drops it. Use **Off** to pause a source
+   instead. Deleting lines from a city file does *not* remove anything.
+
+`python test_sync_merge.py` covers these rules.
+
 ## Things that will bite you
 
 - **Retry a 403 with browser headers before writing a source off.** CultureLink was

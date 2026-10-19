@@ -53,7 +53,9 @@
     { "id": "hope-reformed-church-esl", "name": "Hope Reformed Church - Free ESL Classes", "kind": "manual",
       "url": "https://hopereformedchurch.ca/events/free-esl-classes", "home": "https://hopereformedchurch.ca/",
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
-      "notes": "Standing weekly free ESL classes (Thursdays 7:00-8:30pm at 375 Clark Blvd, Beginner/Intermediate/Advanced, new topic weekly) explicitly for newcomers - contact ESL@hopereformedchurch.ca. wp-json/tribe route 404s 2026-08-26 - no feed, term-based standing program only. Left with an empty manual event list per the no-recurring-events rule." }
+      "notes": "Standing weekly free ESL classes (Thursdays 7:00-8:30pm at 375 Clark Blvd, Beginner/Intermediate/Advanced, new topic weekly) explicitly for newcomers - contact ESL@hopereformedchurch.ca. wp-json/tribe route 404s 2026-08-26 - no feed, term-based standing program only. Left with an empty manual event list per the no-recurring-events rule." },
+    {"id": "brampton-santa-claus-parade", "name": "Brampton Santa Claus Parade", "kind": "manual", "url": "https://www.bramptonsantaclausparade.com/", "home": "https://www.bramptonsantaclausparade.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Brampton Santa Claus Parade' (Nov) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "the-rose-brampton", "name": "The Rose Brampton", "kind": "probe", "url": "https://therosebrampton.ca/", "home": "https://therosebrampton.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'The Rose Brampton holiday season' (Nov-Dec) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."}
   ],
   "manual_events": []
 }

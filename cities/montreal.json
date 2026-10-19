@@ -74,7 +74,9 @@
     { "id": "church21-montreal", "name": "Church 21", "kind": "manual",
       "url": "https://www.church21.ca/", "home": "https://www.church21.ca/",
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
-      "notes": "Multi-site Montreal-area church family with a dedicated University congregation location alongside Downtown/West Island/South Shore/Verdun/Vaudreuil/Centre-ville sites. Site platform is a small custom/1&1-hosted builder, no sqs or tribe feed (events?format=json 404s). Prayer/worship nights found during probing were already in the past by build time; left with an empty manual event list - re-check for a fall schedule." }
+      "notes": "Multi-site Montreal-area church family with a dedicated University congregation location alongside Downtown/West Island/South Shore/Verdun/Vaudreuil/Centre-ville sites. Site platform is a small custom/1&1-hosted builder, no sqs or tribe feed (events?format=json 404s). Prayer/worship nights found during probing were already in the past by build time; left with an empty manual event list - re-check for a fall schedule." },
+    {"id": "igloofest", "name": "Igloofest", "kind": "manual", "url": "https://www.igloofest.ca/", "home": "https://www.igloofest.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Igloofest' (Jan) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "no-l-dans-le-parc", "name": "Noël dans le Parc", "kind": "manual", "url": "https://www.noeldansleparc.com/", "home": "https://www.noeldansleparc.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Christmas in the Park' (Dec) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."}
   ],
   "manual_events": [
     { "source_id": "mcgill-iss", "title": "McGill International Student Welcome Reception",
@@ -106,6 +108,9 @@
       "start": "2026-11-19T12:00:00", "end": "2026-11-26T23:00:00",
       "category": "social", "venue": "Cinéma du Parc & venues across Montreal",
       "cost": "Paid (some free events)", "url": "https://ridm.ca/en",
-      "already_live": false, "verify": "Runs Nov 19-29; only the portion inside the 3-month build window is listed. Confirm free screenings/panels before drafting." }
+      "already_live": false, "verify": "Runs Nov 19-29; only the portion inside the 3-month build window is listed. Confirm free screenings/panels before drafting." },
+    {"source_id": "mtl-festivals", "title": "Great Christmas Market of Montreal", "start": "2026-11-13T12:00:00", "end": "2027-01-03T21:00:00", "category": "social", "venue": "Place des Festivals, Quartier des Spectacles", "cost": "Free", "url": "https://www.mtl.org/en/what-to-do/festivals-and-events/the-great-christmas-market", "already_live": false, "verify": "Daily hours not confirmed."},
+    {"source_id": "igloofest", "title": "Igloofest", "start": "2027-01-14T19:00:00", "end": "2027-02-06T23:59:00", "category": "social", "venue": "Jacques-Cartier Quay, Old Port", "cost": "Ticketed", "url": "https://www.igloofest.ca/", "already_live": false, "verify": "Thursday-Saturday nights only."},
+    {"source_id": "mtl-festivals", "title": "LUMINO - Horizon", "start": "2027-01-21T17:00:00", "end": "2027-03-07T23:00:00", "category": "social", "venue": "Quartier des Spectacles", "cost": "Free", "url": "https://www.quartierdesspectacles.com/", "already_live": false}
   ]
 }
