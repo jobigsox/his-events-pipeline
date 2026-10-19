@@ -41,7 +41,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     outputs:
       summary: ${{ steps.counts.outputs.summary }}
     steps:
@@ -51,6 +51,22 @@ jobs:
         with:
           python-version: "3.12"
           # no dependencies to cache - the crawler is standard library only
+
+      # Pictures found for events (event pages, openly licensed web search,
+      # organizer sites) are cached between runs so each week only looks up
+      # what's new. The key changes every run so the updated cache is saved;
+      # restore-keys picks up the most recent one.
+      - name: Restore the picture cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: images-${{ github.run_id }}
+          restore-keys: images-
+
+      - name: Check the picture finder and source merge rules
+        run: |
+          python test_image_finder.py
+          python test_sync_merge.py
 
       # The console holds the live source registry. If it is unreachable the
       # committed cities/*.json is used as-is and the crawl still runs.
@@ -62,6 +78,10 @@ jobs:
 
       - name: Build every city
         env:
+          # Optional: registered Openverse credentials raise the picture-search
+          # rate limit. Without them searches still run, just fewer per week.
+          OPENVERSE_CLIENT_ID: ${{ secrets.OPENVERSE_CLIENT_ID }}
+          OPENVERSE_CLIENT_SECRET: ${{ secrets.OPENVERSE_CLIENT_SECRET }}
           MONTHS: ${{ inputs.months || '3' }}
           MIN_SCORE: ${{ inputs.min_score || '55' }}
           CITY: ${{ inputs.city || '' }}

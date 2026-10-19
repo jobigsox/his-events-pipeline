@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""Find a real picture for every event that comes back from its feed without one.
+
+Most feeds (library calendars, university iCal, city calendars) carry no image,
+so ~3 in 4 events used to fall back to the generic per-category art. This runs
+after collect() and tries, in order, until one works:
+
+  1. the event's own page          - og:image / twitter:image / JSON-LD image
+  2. a web image search            - Openverse, openly licensed only (CC0 /
+                                     public domain), so HIS can publish it
+                                     on Wix without attribution or permission
+  3. the organizer's home page     - its og:image
+  4. (caller) per-category default - the existing "wix:<mediaId>" art
+
+Every candidate is checked before it is used: it must load, be a real raster
+image (jpeg/png/webp/gif), not be tiny, and not look like a logo/icon. A
+picture that the same source reuses across several different events is treated
+as a logo and skipped. Results are cached in .cache/images.json between runs
+(the workflow persists that folder), so each weekly crawl only looks up what's
+new and coverage keeps improving.
+
+Standard library only, like the rest of the pipeline. Never raises: a missing
+picture must never break a crawl.
+"""
+
+import concurrent.futures as cf
+import html
+import json
+import os
+import re
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+CACHE_PATH = os.environ.get("IMAGE_CACHE", os.path.join(HERE, ".cache", "images.json"))
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+DAY = 86400
+TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web": 60 * DAY, "home": 30 * DAY}
+NEG_TTL = 3 * DAY                      # retry failures sooner than successes
+
+MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
+MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "120"))  # per city
+TIME_BUDGET = float(os.environ.get("IMAGE_TIME_BUDGET", "60"))    # seconds per city
+WORKERS = 12
+LOGO_REPEAT = 4          # same picture on >= this many different titles in one source
+
+OPENVERSE = "https://api.openverse.org/v1/images/"
+OK_TYPES = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif")
+BAD_URL = re.compile(r"(logo|favicon|icon|sprite|placeholder|default[-_]?image|blank|spacer|"
+                     r"avatar|gravatar|badge|banner-ad|pixel|1x1)", re.I)
+BAD_EXT = re.compile(r"\.(svg|ico|bmp|tiff?)(\?|#|$)", re.I)
+
+STOP = set("""a an and the of for to in on at by with from or & - – — | : drop-in dropin
+drop online virtual session sessions workshop workshops program programme class classes series
+info information table meeting club circle hour hours am pm free weekly monthly daily
+part new edition annual presented presents hosted host join us event events week
+""".split())
+
+
+def _now():
+    return time.time()
+
+
+class _Cache:
+    """Tiny JSON cache shared by the worker threads."""
+
+    def __init__(self, path):
+        self.path, self.lock, self.data = path, threading.Lock(), {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                self.data = json.load(f)
+        except Exception:                          # noqa: BLE001 - empty/corrupt cache is fine
+            self.data = {}
+
+    def get(self, kind, key):
+        with self.lock:
+            hit = self.data.get(kind + ":" + key)
+        if not hit:
+            return None
+        age = _now() - hit.get("t", 0)
+        ttl = TTL[kind] if hit.get("v") not in (None, "", [], False) else NEG_TTL
+        return hit if age < ttl else None
+
+    def put(self, kind, key, value):
+        with self.lock:
+            self.data[kind + ":" + key] = {"v": value, "t": int(_now())}
+
+    def save(self):
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            # Drop entries far past every TTL so the file can't grow forever.
+            cutoff = _now() - 120 * DAY
+            keep = {k: v for k, v in self.data.items() if v.get("t", 0) > cutoff}
+            tmp = self.path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(keep, f, ensure_ascii=False)
+            os.replace(tmp, self.path)
+        except Exception:                          # noqa: BLE001
+            pass
+
+
+def _get(url, timeout=8, max_bytes=600_000, accept="text/html,*/*", headers=None):
+    req = urllib.request.Request(url, headers=dict({
+        "User-Agent": UA, "Accept": accept, "Accept-Language": "en-CA,en;q=0.9"}, **(headers or {})))
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status, r.headers, r.read(max_bytes)
+
+
+# --------------------------------------------------------------------------- pages
+_META = re.compile(r"<meta\b[^>]*>", re.I)
+_ATTR = re.compile(r'([a-zA-Z:_-]+)\s*=\s*("([^"]*)"|\'([^\']*)\')')
+_LDJSON = re.compile(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', re.I | re.S)
+_IMGSRC = re.compile(r'<link\b[^>]*rel=["\']image_src["\'][^>]*>', re.I)
+
+
+def page_images(markup, base):
+    """Candidate pictures a page advertises for itself, best first."""
+    found = []
+
+    def add(u):
+        if not u:
+            return
+        u = html.unescape(u.strip())
+        if u.startswith("//"):
+            u = "https:" + u
+        u = urllib.parse.urljoin(base, u)
+        if u.startswith("http") and u not in found:
+            found.append(u)
+
+    metas = {}
+    for tag in _META.findall(markup):
+        attrs = {m.group(1).lower(): (m.group(3) if m.group(3) is not None else m.group(4))
+                 for m in _ATTR.finditer(tag)}
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key and attrs.get("content"):
+            metas.setdefault(key, attrs["content"])
+    for key in ("og:image:secure_url", "og:image", "og:image:url", "twitter:image",
+                "twitter:image:src"):
+        add(metas.get(key))
+
+    for blob in _LDJSON.findall(markup):
+        try:
+            data = json.loads(blob.strip())
+        except Exception:                          # noqa: BLE001
+            continue
+        stack = data if isinstance(data, list) else [data]
+        while stack:
+            node = stack.pop(0)
+            if isinstance(node, dict):
+                img = node.get("image")
+                if isinstance(img, str):
+                    add(img)
+                elif isinstance(img, dict):
+                    add(img.get("url"))
+                elif isinstance(img, list):
+                    for i in img:
+                        add(i if isinstance(i, str) else (i or {}).get("url"))
+                stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
+            elif isinstance(node, list):
+                stack.extend(node)
+
+    for tag in _IMGSRC.findall(markup):
+        m = re.search(r'href=["\']([^"\']+)', tag)
+        add(m.group(1) if m else None)
+    return found
+
+
+def looks_wrong(url):
+    path = urllib.parse.urlparse(url).path
+    return bool(BAD_EXT.search(path) or BAD_URL.search(path))
+
+
+def check_image(url, cache):
+    """True if url loads as a real, reasonably sized raster image."""
+    if not url or looks_wrong(url):
+        return False
+    hit = cache.get("ok", url)
+    if hit is not None:
+        return bool(hit["v"])
+    ok = False
+    try:
+        status, headers, body = _get(url, timeout=8, max_bytes=65_536,
+                                     accept="image/avif,image/webp,image/*,*/*;q=0.8",
+                                     headers={"Range": "bytes=0-65535"})
+        ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        size = headers.get("Content-Range", "").rpartition("/")[2] or headers.get("Content-Length")
+        size = int(size) if size and size.isdigit() else len(body)
+        ok = status in (200, 206) and ctype in OK_TYPES and size >= 12_000
+    except Exception:                              # noqa: BLE001
+        ok = False
+    cache.put("ok", url, ok)
+    return ok
+
+
+def fetch_page_images(url, cache):
+    hit = cache.get("page", url)
+    if hit is not None:
+        return hit["v"] or []
+    imgs = []
+    try:
+        status, headers, body = _get(url)
+        ctype = (headers.get("Content-Type") or "").lower()
+        if status == 200 and "html" in ctype:
+            charset = headers.get_content_charset() or "utf-8"
+            imgs = page_images(body.decode(charset, "replace"), url)[:4]
+    except Exception:                              # noqa: BLE001
+        imgs = []
+    cache.put("page", url, imgs)
+    return imgs
+
+
+# --------------------------------------------------------------------------- web search
+def search_query(title, city):
+    """Turn an event title into a short picture-search query."""
+    t = re.sub(r"\(.*?\)|\[.*?\]", " ", title)
+    t = re.sub(r"\b%s\b" % re.escape(city), " ", t, flags=re.I)
+    t = re.sub(r"\b\d{1,4}(st|nd|rd|th)?\b", " ", t)
+    words = [w for w in re.findall(r"[A-Za-zÀ-ÿ'’]+", t) if w.lower() not in STOP and len(w) > 2]
+    return " ".join(words[:4]).lower()
+
+
+_token = {"v": None, "exp": 0}
+
+
+def _openverse_headers():
+    """Optional registered credentials lift the anonymous rate limit."""
+    cid, secret = os.environ.get("OPENVERSE_CLIENT_ID"), os.environ.get("OPENVERSE_CLIENT_SECRET")
+    if not (cid and secret):
+        return {}
+    if _token["v"] and _token["exp"] > _now() + 60:
+        return {"Authorization": "Bearer " + _token["v"]}
+    try:
+        body = urllib.parse.urlencode({"client_id": cid, "client_secret": secret,
+                                       "grant_type": "client_credentials"}).encode()
+        req = urllib.request.Request("https://api.openverse.org/v1/auth_tokens/token/", data=body,
+                                     headers={"User-Agent": UA,
+                                              "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            tok = json.loads(r.read().decode())
+        _token.update(v=tok["access_token"], exp=_now() + int(tok.get("expires_in", 3600)))
+        return {"Authorization": "Bearer " + _token["v"]}
+    except Exception:                              # noqa: BLE001
+        return {}
+
+
+def web_search(query, cache, state):
+    """Openly licensed picture for `query`, or None. Returns (url, credit)."""
+    if not query:
+        return None
+    hit = cache.get("web", query)
+    if hit is not None:
+        return tuple(hit["v"]) if hit["v"] else None
+    if state["searches"] >= MAX_WEB_SEARCHES or state["throttled"]:
+        return None
+    state["searches"] += 1
+    result = None
+    try:
+        qs = urllib.parse.urlencode({"q": query, "license": "cc0,pdm", "page_size": 10,
+                                     "mature": "false", "size": "medium,large"})
+        status, headers, body = _get(OPENVERSE + "?" + qs, timeout=10, max_bytes=400_000,
+                                     accept="application/json", headers=_openverse_headers())
+        for r in json.loads(body.decode("utf-8")).get("results", []):
+            w, h, url = r.get("width") or 0, r.get("height") or 0, r.get("url")
+            if not url or w < 640 or (h and w / h < 1.1) or looks_wrong(url):
+                continue
+            credit = "%s (%s, via Openverse)" % (r.get("creator") or "unknown",
+                                                (r.get("license") or "").upper())
+            result = (url, credit)
+            break
+    except urllib.error.HTTPError as e:
+        if e.code == 429:
+            state["throttled"] = True        # stop for this run; cache keeps what we have
+            return None
+    except Exception:                              # noqa: BLE001
+        result = None
+    cache.put("web", query, list(result) if result else "")
+    return result
+
+
+# --------------------------------------------------------------------------- driver
+def fill_images(events, sources, city_name, log=print, cache_path=None):
+    """Give every event in `events` the best picture we can find, in place.
+
+    Sets e["image"] (only when a verified picture is found) and
+    e["image_source"] in {"feed", "event-page", "web-search", "organizer",
+    "default"}. Returns a summary dict.
+    """
+    if os.environ.get("NO_IMAGE_SEARCH"):
+        return {"skipped": True}
+    t0 = _now()
+    cache = _Cache(cache_path or CACHE_PATH)
+    by_src = {s["id"]: s for s in sources}
+    state = {"searches": 0, "throttled": False}
+    out_of_time = lambda: _now() - t0 > TIME_BUDGET        # noqa: E731
+
+    def pool_map(fn, items):
+        items = list(items)
+        res = {}
+        if not items:
+            return res
+        with cf.ThreadPoolExecutor(WORKERS) as ex:
+            # Each task re-checks the clock, so a slow site can't blow the budget.
+            futs = {ex.submit(lambda it: None if out_of_time() else fn(it), it): it for it in items}
+            for f in cf.as_completed(futs):
+                try:
+                    res[futs[f]] = f.result()
+                except Exception:                  # noqa: BLE001
+                    res[futs[f]] = None
+        return res
+
+    # 0. Feed images: keep them, but only if they actually load.
+    feed = {e["image"] for e in events if e.get("image") and str(e["image"]).startswith("http")}
+    ok = pool_map(lambda u: check_image(u, cache), feed)
+    for e in events:
+        img = e.get("image")
+        if img and str(img).startswith("http"):
+            if ok.get(img):
+                e["image_source"] = "feed"
+            else:
+                e["image"] = None
+
+    # 1. The event's own page.
+    need = [e for e in events if not e.get("image") and e.get("url")]
+    page_urls = []
+    for e in need:
+        src = by_src.get(e.get("source_id")) or {}
+        u = e["url"]
+        if u not in page_urls and u.rstrip("/") not in {(src.get("home") or "").rstrip("/"),
+                                                       (src.get("url") or "").rstrip("/")}:
+            page_urls.append(u)
+    page_urls = page_urls[:MAX_PAGE_FETCHES]
+    pages = pool_map(lambda u: fetch_page_images(u, cache), page_urls) if not out_of_time() else {}
+
+    # A picture the same source attaches to several *different* events is its
+    # logo or a stock banner, not the event's own photo - skip those.
+    seen = {}
+    for e in need:
+        for img in (pages.get(e["url"]) or [])[:1]:
+            seen.setdefault((e.get("source_id"), img), set()).add(e["title"].strip().lower())
+    logos = {k[1] for k, titles in seen.items() if len(titles) >= LOGO_REPEAT}
+
+    cands = {}
+    for e in need:
+        for img in pages.get(e["url"]) or []:
+            if img not in logos:
+                cands[id(e)] = img
+                break
+    ok = pool_map(lambda u: check_image(u, cache), set(cands.values())) if not out_of_time() else {}
+    for e in need:
+        img = cands.get(id(e))
+        if img and ok.get(img):
+            e["image"], e["image_source"] = img, "event-page"
+
+    # 2. Openly licensed web search on the event title (best-scored events first).
+    need = sorted((e for e in events if not e.get("image")), key=lambda x: -x.get("score", 0))
+    queries = {}
+    for e in need:
+        q = search_query(e["title"], city_name)
+        if q:
+            queries.setdefault(q, []).append(e)
+    for q, evs in queries.items():
+        if out_of_time():
+            break
+        found = web_search(q, cache, state)
+        if found and check_image(found[0], cache):
+            for e in evs:
+                e["image"], e["image_source"], e["image_credit"] = found[0], "web-search", found[1]
+
+    # 3. The organizer's own site picture (one lookup per source).
+    need = [e for e in events if not e.get("image")]
+    homes = {}
+    for e in need:
+        src = by_src.get(e.get("source_id")) or {}
+        h = src.get("home") or src.get("url")
+        if h and h.startswith("http"):
+            homes[e.get("source_id")] = h
+    if homes and not out_of_time():
+        imgs = pool_map(lambda h: fetch_page_images(h, cache), set(homes.values()))
+        best = {}
+        for sid, h in homes.items():
+            for img in imgs.get(h) or []:
+                if check_image(img, cache):
+                    best[sid] = img
+                    break
+        for e in need:
+            img = best.get(e.get("source_id"))
+            if img:
+                e["image"], e["image_source"] = img, "organizer"
+
+    for e in events:
+        e.setdefault("image_source", "default" if not e.get("image") else "feed")
+
+    cache.save()
+    counts = {}
+    for e in events:
+        counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
+    log("  pictures: %s%s (%.0fs, %d web searches%s)" % (
+        ", ".join("%s %d" % kv for kv in sorted(counts.items())),
+        "", _now() - t0, state["searches"], ", search rate-limited" if state["throttled"] else ""))
+    return counts

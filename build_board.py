@@ -1505,6 +1505,10 @@ def payload(events, sources, status, keys, top, start, end):
             "live": bool(e.get("already_live")),
             "verify": e.get("verify"),
             "image": e.get("image") or "wix:" + CITY["default_images"][e["category"]],
+            # where the picture came from: feed | event-page | web-search |
+            # organizer | default - and, for openly licensed finds, the credit
+            "imageSource": e.get("image_source") or ("feed" if e.get("image") else "default"),
+            "imageCredit": e.get("image_credit"),
             # base can be null for a city whose base category doesn't exist yet
             "wixCategoryIds": [c for c in (CITY["wix"][e["category"]], CITY["wix"].get("base")) if c],
         }
@@ -1543,6 +1547,8 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--json", default=None)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--no-images", action="store_true",
+                    help="skip the picture search (offline / quick runs)")
     a = ap.parse_args()
 
     try:                                  # Windows consoles default to cp1252
@@ -1580,6 +1586,15 @@ def main():
         % (CITY["city"], start, end, a.top))
     events, status = collect(sources, start, end, log)
     log("  %s\n  %d events kept after de-dupe" % ("-" * 46, len(events)))
+
+    # Most feeds carry no picture; look one up (event page -> openly licensed
+    # web search -> organizer site) before falling back to the category art.
+    if not a.no_images:
+        try:
+            from image_finder import fill_images
+            fill_images(events, sources, CITY["city"], log)
+        except Exception as ex:                   # noqa: BLE001 - pictures never break a build
+            log("  pictures: skipped (%s)" % type(ex).__name__)
 
     data = payload(events, sources, status, keys, a.top, start, end)
 

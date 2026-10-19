@@ -11,3 +11,6 @@ _site/
 __pycache__/
 check.js
 data.js
+
+# Picture-finder cache (persisted between CI runs by actions/cache)
+.cache/
