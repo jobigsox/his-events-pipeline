@@ -68,7 +68,11 @@
       "url": "https://teslkingston.org/upcoming-workshops/",
       "home": "https://teslkingston.org/", "default_category": "practical",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "ESL-teacher professional-development network; page literally says 'Fall 2026 PD planning now' with nothing scheduled yet as of 2026-08-26. Content gap, not access - re-check in the fall." }
+      "notes": "ESL-teacher professional-development network; page literally says 'Fall 2026 PD planning now' with nothing scheduled yet as of 2026-08-26. Content gap, not access - re-check in the fall." },
+    {"id": "fat-goose-craft-fair", "name": "Fat Goose Craft Fair", "kind": "manual", "url": "https://www.fatgoosecraftfair.com/", "home": "https://www.fatgoosecraftfair.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Fat Goose Craft Fair' (Nov) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "kingston-artist-events-holiday-market", "name": "Kingston Artist Events - Holiday Market", "kind": "manual", "url": "https://kingstonartistevents.com/pages/kingston-holiday-market-info", "home": "https://kingstonartistevents.com/pages/kingston-holiday-market-info", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Kingston Holiday Market (Tett Centre)' (Nov-Dec) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "kingston-grand-theatre", "name": "Kingston Grand Theatre", "kind": "probe", "url": "https://www.kingstongrand.ca/", "home": "https://www.kingstongrand.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Kingston Grand Theatre holiday shows' (Dec) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
+    {"id": "kingston-civic-festivals", "name": "Kingston civic festivals (hand-entered)", "kind": "manual", "url": "https://www.cityofkingston.ca/", "home": "https://www.cityofkingston.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19: hand-entered dated civic events (the city calendar itself is crawled separately). Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."}
   ],
   "manual_events": [
     { "source_id": "quic", "title": "QUIC International Student Welcome Week",
@@ -95,6 +99,8 @@
       "start": "2026-09-12T12:00:00", "end": "2026-09-12T23:00:00",
       "category": "social", "venue": "Springer Market Square & Princess St, Downtown Kingston",
       "cost": "Free", "url": "https://downtownkingston.ca/pages/events-calendar",
-      "already_live": false, "verify": "Confirm hours - one mainstage day plus a walkable street festival along Princess St." }
+      "already_live": false, "verify": "Confirm hours - one mainstage day plus a walkable street festival along Princess St." },
+    {"source_id": "kingston-civic-festivals", "title": "New Year's Eve at Springer Market Square", "start": "2026-12-31T20:00:00", "end": "2027-01-01T00:30:00", "category": "social", "venue": "Springer Market Square", "cost": "Free", "url": "https://www.cityofkingston.ca/", "already_live": false, "verify": "City lists Dec 31 at Springer Market Square & Confederation Park; times not confirmed."},
+    {"source_id": "kingston-civic-festivals", "title": "Remembrance Day ceremony", "start": "2026-11-11T10:30:00", "category": "social", "venue": "Macdonald Park", "cost": "Free", "url": "https://www.cityofkingston.ca/", "already_live": false, "verify": "Time not confirmed."}
   ]
 }

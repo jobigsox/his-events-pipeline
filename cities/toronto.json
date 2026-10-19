@@ -460,7 +460,12 @@
       "enabled": true,
       "image": null,
       "notes": "Added 2026-09-06. Monthly car-free market day, food/music/performers/local shops, free to attend. Confirmed 2026 dates: Sep 27 and Oct 25, 12-7pm."
-    }
+    },
+    {"id": "the-santa-claus-parade", "name": "The Santa Claus Parade", "kind": "manual", "url": "https://www.thesantaclausparade.com/", "home": "https://www.thesantaclausparade.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'The Santa Claus Parade (122nd)' (Nov) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "sankofa-square", "name": "Sankofa Square", "kind": "probe", "url": "https://sankofasquare.ca/", "home": "https://sankofasquare.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Winter Glow at Sankofa Square' (Dec) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
+    {"id": "toronto-light-festival", "name": "Toronto Light Festival", "kind": "manual", "url": "https://www.torontolightfest.com/", "home": "https://www.torontolightfest.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Toronto Light Festival' (Jan) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "designto-festival", "name": "DesignTO Festival", "kind": "probe", "url": "https://designto.org/", "home": "https://designto.org/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'DesignTO Festival' (Jan) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
+    {"id": "the-bentway", "name": "The Bentway", "kind": "probe", "url": "https://www.thebentway.ca/", "home": "https://www.thebentway.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'The Bentway Skate Trail' (Jan) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."}
   ],
   "manual_events": [
     {
@@ -1034,6 +1039,7 @@
       "cost": "Free",
       "url": "https://thepeoplechurch.ca/new-to-canada",
       "verify": "Weekly fellowship continues every Sunday after this - only the season's opening Sunday is entered here per the no-recurring-events rule."
-    }
+    },
+    {"source_id": "the-santa-claus-parade", "title": "The Santa Claus Parade (122nd)", "start": "2026-11-22T12:30:00", "category": "social", "venue": "Bloor St W & Christie St to downtown", "cost": "Free", "url": "https://www.thesantaclausparade.com/", "already_live": false, "verify": "Start time from last year's listing; confirm route/time when the 2026 map is posted."}
   ]
 }

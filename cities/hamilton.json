@@ -97,7 +97,12 @@
       "url": "https://www.ticketmaster.ca/discover/hamilton?categoryId=KZFzniwnSyZfZ7v7nJ",
       "home": "https://www.ticketmaster.ca/discover/hamilton", "default_category": "social",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "No public feed, but the Next.js page ships the full event list pre-rendered in __NEXT_DATA__ (initialReduxState.api.queries.cityEvents...data.events), paginated with ?page=N. No price field is exposed, so cost is set to the literal string 'Paid' (an empty string scores as free in build_board.py's scorer - learned the hard way) so ticketed shows don't get a false free-cost credit." }
+      "notes": "No public feed, but the Next.js page ships the full event list pre-rendered in __NEXT_DATA__ (initialReduxState.api.queries.cityEvents...data.events), paginated with ?page=N. No price field is exposed, so cost is set to the literal string 'Paid' (an empty string scores as free in build_board.py's scorer - learned the hard way) so ticketed shows don't get a false free-cost credit." },
+    {"id": "carnegie-gallery-dundas", "name": "Carnegie Gallery Dundas", "kind": "manual", "url": "https://www.carnegiegallery.org/", "home": "https://www.carnegiegallery.org/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Arts Dundas Weekend' (Nov) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."},
+    {"id": "royal-botanical-gardens", "name": "Royal Botanical Gardens", "kind": "probe", "url": "https://www.rbg.ca/", "home": "https://www.rbg.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'RBG Winter Wonders' (Nov-Jan) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
+    {"id": "brott-music-festival", "name": "Brott Music Festival", "kind": "manual", "url": "https://brottmusic.com/", "home": "https://brottmusic.com/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Brott Music Festival Holiday Series' (Dec) was missing from this city's board. Annual/one-off festival organizer - hand-enter real dates as manual_events once announced; never invent dates."}
   ],
-  "manual_events": []
+  "manual_events": [
+    {"source_id": "carnegie-gallery-dundas", "title": "Arts Dundas Weekend", "start": "2026-11-05T10:00:00", "end": "2026-11-08T17:00:00", "category": "social", "venue": "Downtown Dundas", "cost": "Free + paid", "url": "https://www.carnegiegallery.org/", "already_live": false, "verify": "Date from the user's Hamilton research list; confirm on the organizer site before drafting."}
+  ]
 }
