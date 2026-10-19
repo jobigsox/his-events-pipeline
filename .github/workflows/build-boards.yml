@@ -139,10 +139,29 @@ jobs:
           fi
 
       - name: Bundle the boards
+        env:
+          CITY: ${{ inputs.city || '' }}
+          PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
         run: |
           mkdir -p _site
           cp index.html board-*.html _site/
           cp events-*.json _site/ 2>/dev/null || true
+          # A single-city re-crawl only builds that one city. Pages replaces the
+          # whole site on every deploy, so carry every OTHER city's current
+          # board over from the live site - otherwise one city's re-crawl
+          # would wipe the other 18 from GitHub Pages.
+          if [ -n "$CITY" ]; then
+            for f in cities/*.json; do
+              s=$(basename "$f" .json)
+              [ "$s" = "$CITY" ] && continue
+              for name in "board-$s.html" "events-$s.json"; do
+                [ -f "_site/$name" ] && continue
+                curl -fsSL --retry 2 "$PAGES_URL/$name" -o "_site/$name" \
+                  || echo "::warning::could not carry over $name from the live site"
+              done
+            done
+            echo "Carried over $(ls _site/board-*.html | wc -l) boards in total"
+          fi
 
       - uses: actions/upload-artifact@v4
         with:

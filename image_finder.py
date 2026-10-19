@@ -45,7 +45,11 @@ NEG_TTL = 3 * DAY                      # retry failures sooner than successes
 
 MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
 MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "120"))  # per city
-TIME_BUDGET = float(os.environ.get("IMAGE_TIME_BUDGET", "60"))    # seconds per city
+# Seconds per city for each step, so a slow first step can't starve the later
+# ones (the web search used to get no turn at all in big cities).
+PAGE_BUDGET = float(os.environ.get("IMAGE_PAGE_BUDGET", "50"))
+SEARCH_BUDGET = float(os.environ.get("IMAGE_SEARCH_BUDGET", "35"))
+HOME_BUDGET = float(os.environ.get("IMAGE_HOME_BUDGET", "15"))
 WORKERS = 12
 LOGO_REPEAT = 4          # same picture on >= this many different titles in one source
 
@@ -296,7 +300,11 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     cache = _Cache(cache_path or CACHE_PATH)
     by_src = {s["id"]: s for s in sources}
     state = {"searches": 0, "throttled": False}
-    out_of_time = lambda: _now() - t0 > TIME_BUDGET        # noqa: E731
+    clock = {"deadline": _now() + PAGE_BUDGET}
+    out_of_time = lambda: _now() > clock["deadline"]       # noqa: E731
+
+    def stage(seconds):
+        clock["deadline"] = _now() + seconds
 
     def pool_map(fn, items):
         items = list(items)
@@ -357,6 +365,7 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
             e["image"], e["image_source"] = img, "event-page"
 
     # 2. Openly licensed web search on the event title (best-scored events first).
+    stage(SEARCH_BUDGET)
     need = sorted((e for e in events if not e.get("image")), key=lambda x: -x.get("score", 0))
     queries = {}
     for e in need:
@@ -372,6 +381,7 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
                 e["image"], e["image_source"], e["image_credit"] = found[0], "web-search", found[1]
 
     # 3. The organizer's own site picture (one lookup per source).
+    stage(HOME_BUDGET)
     need = [e for e in events if not e.get("image")]
     homes = {}
     for e in need:
