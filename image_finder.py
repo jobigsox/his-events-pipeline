@@ -52,14 +52,18 @@ MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "40"))   # per city,
 # Seconds per city for each step, so a slow first step can't starve the later
 # ones (the web search used to get no turn at all in big cities).
 PAGE_BUDGET = float(os.environ.get("IMAGE_PAGE_BUDGET", "50"))
-SEARCH_BUDGET = float(os.environ.get("IMAGE_SEARCH_BUDGET", "60"))
+SEARCH_BUDGET = float(os.environ.get("IMAGE_SEARCH_BUDGET", "300"))  # only used when needed
 HOME_BUDGET = float(os.environ.get("IMAGE_HOME_BUDGET", "15"))
 WORKERS = 12
 LOGO_REPEAT = 4          # same picture on >= this many different titles in one source
 
 OPENVERSE = "https://api.openverse.org/v1/images/"
 PIXABAY = "https://pixabay.com/api/"
-MAX_PIXABAY = int(os.environ.get("IMAGE_MAX_PIXABAY", "60"))   # per city; API allows 100/min
+# Pixabay allows 100 requests/minute per key. Requests are paced to stay just
+# under that, so a big city (Hamilton has 800+ events) can search as much as
+# it needs in one crawl instead of a small fixed share.
+MAX_PIXABAY = int(os.environ.get("IMAGE_MAX_PIXABAY", "400"))  # per city
+PIXABAY_PER_MIN = float(os.environ.get("IMAGE_PIXABAY_PER_MIN", "90"))
 # Openverse is OFF by default: it never answers GitHub's servers (every request
 # timed out in Oct 2026), so it only wasted search time. Set USE_OPENVERSE=1
 # to switch it back on if that changes.
@@ -278,6 +282,20 @@ def _openverse_headers():
         return {}
 
 
+_pace = {"next": 0.0, "lock": threading.Lock()}
+
+
+def _wait_for_pixabay_slot():
+    """Space requests evenly so we never exceed PIXABAY_PER_MIN."""
+    gap = 60.0 / PIXABAY_PER_MIN
+    with _pace["lock"]:
+        now = _now()
+        slot = max(now, _pace["next"])
+        _pace["next"] = slot + gap
+    if slot > now:
+        time.sleep(slot - now)
+
+
 def pixabay_search(query, cache, state):
     """Pixabay photo for `query` -> ("pixabay:<id>", credit), or None.
 
@@ -295,6 +313,7 @@ def pixabay_search(query, cache, state):
         if state["px"] >= MAX_PIXABAY or state["px_throttled"]:
             return None
         state["px"] += 1
+    _wait_for_pixabay_slot()
     try:
         qs = urllib.parse.urlencode({"key": key, "q": query[:100], "image_type": "photo",
                                      "orientation": "horizontal", "safesearch": "true",
