@@ -451,8 +451,12 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     counts = {}
     for e in events:
         counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
-    print("::notice title=pictures %s::%s, %d web searches%s%s" % (
-        city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["searches"],
+    if os.environ.get("OPENVERSE_CLIENT_ID") and os.environ.get("OPENVERSE_CLIENT_SECRET"):
+        auth = "registered key OK" if _token["v"] else "registered key NOT accepted - check the GitHub secrets"
+    else:
+        auth = "no key (anonymous)"
+    print("::notice title=pictures %s::%s, %d web searches (%s)%s%s" % (
+        city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["searches"], auth,
         ", %d errors" % state["errors"] if state["errors"] else "",
         ", rate-limited" if state["throttled"] else ""))
     log("  pictures: %s%s (%.0fs, %d web searches%s)" % (
