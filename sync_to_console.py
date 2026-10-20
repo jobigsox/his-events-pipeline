@@ -135,9 +135,11 @@ def push_sources():
             continue
         added = res.get("addedSources") or []
         kept = res.get("skippedRemoved") or []
-        print("  pushed %s: +%d sources%s, +%d manual events%s"
+        upgraded = res.get("upgradedSources") or []
+        print("  pushed %s: +%d sources%s, +%d manual events%s%s"
               % (slug, len(added), (" (%s)" % ", ".join(added)) if added else "",
                  res.get("addedEvents", 0),
+                 ("; parser now set for: %s" % ", ".join(upgraded)) if upgraded else "",
                  ("; left removed: %s" % ", ".join(kept)) if kept else ""))
 
 

@@ -67,6 +67,7 @@ jobs:
         run: |
           python test_image_finder.py
           python test_sync_merge.py
+          python test_new_parsers.py
 
       # The console holds the live source registry. If it is unreachable the
       # committed cities/*.json is used as-is and the crawl still runs.

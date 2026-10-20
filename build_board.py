@@ -46,7 +46,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # MIN_SCORE on cost alone, despite being exactly the kind of real festival/
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
-TICKETED_KINDS = {"ticketmaster", "ottawa_tourism"}
+TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview"}
 
 # ---------------------------------------------------------------- scoring
 
@@ -163,7 +163,7 @@ def strip_html(s):
 def parse_tribe(src, start, end):
     """The Events Calendar REST API."""
     out, page, pages = [], 1, 1
-    while page <= pages and page <= 6:
+    while page <= pages and page <= int(src.get("max_pages") or 6):
         q = urllib.parse.urlencode({
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
@@ -1331,6 +1331,144 @@ def parse_ticketmaster(src, start, end):
     return out
 
 
+
+def parse_audienceview(src, start, end):
+    """AudienceView box offices (e.g. tickets.brampton.ca for The Rose). The
+    listing page embeds a `searchResults : [ [...], ... ]` JS array, 10-12
+    performances per page; `?BOset::WScontent::SearchResultsInfo::current_page=N`
+    pages through without a session token."""
+    base = src["url"].split("?")[0]
+    root = re.match(r"https?://[^/]+", base).group(0)
+    out, seen = [], set()
+    for page in range(1, int(src.get("max_pages") or 10) + 1):
+        url = base if page == 1 else base + "?BOset::WScontent::SearchResultsInfo::current_page=%d" % page
+        text = fetch_text(url)
+        rows = []
+        for m in re.finditer(r'^\s*(\[ "[0-9A-F-]{36}", "P", .*\])\s*,?\s*$', text, re.M):
+            raw = m.group(1).replace("\\'", "'")
+            try:
+                rows.append(json.loads(raw))
+            except ValueError:
+                continue
+        new = [r for r in rows if r[0] not in seen]
+        if not new:
+            break
+        for r in new:
+            seen.add(r[0])
+            try:
+                d = dt.date(int(r[11]), int(r[10]) + 1, int(r[9]))     # month is 0-based
+            except (ValueError, IndexError):
+                continue
+            hhmm = r[8] if re.match(r"^\d{1,2}:\d{2}$", r[8] or "") else "00:00"
+            venue = ""
+            if "Canada" in r:
+                c = r.index("Canada")
+                name = (r[c + 5] if len(r) > c + 5 else "") or ""
+                venue = ", ".join(x for x in [re.sub(r"\s+", " ", name).strip(), r[c - 4], r[c - 3]] if x)
+            elif len(r) > 31 and isinstance(r[30], str) and r[30]:     # "Venues Offsite"
+                venue = ", ".join(x for x in [r[30], r[31]] if isinstance(x, str) and x)
+            prices = [x for x in r if isinstance(x, str) and re.match(r"^\$\d", x)]
+            cost = "Free" if prices and all(re.match(r"^\$0(\.00)?$", x) for x in prices) else (
+                "From %s" % prices[0] if prices else "See website")
+            link = r[18] if len(r) > 18 else ""
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": strip_html(r[6]),
+                "description": strip_html(" ".join(x for x in [r[5], r[2], r[17]] if isinstance(x, str)))[:400],
+                "start": "%s %s" % (d.isoformat(), hhmm), "end": "%s %s" % (d.isoformat(), hhmm),
+                "utc": False, "venue": venue or src.get("default_venue", ""), "cost": cost,
+                "url": urllib.parse.urljoin(base, link) if link else base,
+                "image": urllib.parse.urljoin(root + "/", r[20]) if len(r) > 20 and r[20] else None,
+            })
+        if out and dt.date.fromisoformat(out[-1]["start"][:10]) > end:
+            break
+    return out
+
+
+def parse_imis_events(src, start, end):
+    """iMIS cloud 'Events_List.aspx' (e.g. PAMA): a RadGrid of
+    title link + 'When: Month D, YYYY' (+ optional 'Where:'). No times."""
+    text = fetch_text(src["url"])
+    out = []
+    for block in re.split(r'class="SearchResultSummary"', text)[1:]:
+        a = re.search(r'<a[^>]+href="([^"]*Event\.aspx\?EventKey=[^"]+)"[^>]*>\s*<span[^>]*>(.*?)</span>', block, re.S)
+        w = re.search(r"When:\s*</strong>\s*([A-Za-z]+ \d{1,2}, \d{4})(?:\s*-\s*([A-Za-z]+ \d{1,2}, \d{4}))?", block)
+        if not a or not w:
+            continue
+        try:
+            sd = dt.datetime.strptime(w.group(1), "%B %d, %Y").date()
+            ed = dt.datetime.strptime(w.group(2), "%B %d, %Y").date() if w.group(2) else sd
+        except ValueError:
+            continue
+        where = re.search(r"Where:\s*</strong>\s*([^<]+)", block)
+        img = re.search(r'<img[^>]+src="([^"]+)"', block)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": strip_html(a.group(2)), "description": "",
+            "start": sd.isoformat(), "end": ed.isoformat(), "utc": False,
+            "venue": src.get("default_venue") or (where.group(1).strip() if where else ""),
+            "cost": src.get("default_cost", "See website"),
+            "url": urllib.parse.urljoin(src["url"], html.unescape(a.group(1))),
+            "image": urllib.parse.urljoin(src["url"], html.unescape(img.group(1)).split("?")[0]) if img else None,
+        })
+    return out
+
+
+_SXA_MON = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+
+def _sxa_date(s):
+    m = re.match(r"([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})", s.strip())
+    return dt.date(int(m.group(3)), _SXA_MON[m.group(1).lower()], int(m.group(2))) if m else None
+
+
+def _sxa_time(s):
+    m = re.match(r"(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?", s.strip(), re.I)
+    if not m:
+        return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "p" else 0)
+    return "%02d:%s" % (h, m.group(2) or "00")
+
+
+def parse_sitecore_sxa(src, start, end):
+    """Sitecore SXA search results JSON (e.g. Sheridan College /events):
+    {"Results":[{"Url":..., "Html":"<h3 class=field-eventname>..."}]}."""
+    data = fetch(src["url"])
+    root = re.match(r"https?://[^/]+", src["url"]).group(0)
+    out = []
+    for r in data.get("Results", []):
+        h = r.get("Html") or ""
+        a = re.search(r'field-eventname[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', h, re.S)
+        if not a:
+            continue
+        date_block = re.search(r"search-result-event__date(.*?)</h4>", h, re.S)
+        dates = [x for x in (_sxa_date(strip_html(s)) for s in
+                             re.findall(r"<span>([^<]*\d{4})</span>", date_block.group(1) if date_block else ""))
+                 if x]
+        if not dates:
+            continue
+        times = [x for x in (_sxa_time(strip_html(s)) for s in
+                             re.findall(r"<span>([^<]*[ap]\.m\.)</span>", h)) if x]
+        loc = re.search(r"search-result-event__location[^>]*>(.*?)</span></p>", h, re.S)
+        venue = strip_html(loc.group(1)).replace("Location:", "").strip() if loc else ""
+        sd, ed = dates[0], dates[-1]
+        # A long-running "Jun - Oct" series: show it from today rather than drop it.
+        if sd < start <= ed:
+            sd = start
+        t1 = times[0] if times else "00:00"
+        t2 = times[1] if len(times) > 1 else t1
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": strip_html(a.group(2)), "description": "",
+            "start": "%s %s" % (sd.isoformat(), t1), "end": "%s %s" % (ed.isoformat(), t2),
+            "utc": False, "venue": venue or src.get("default_venue", ""),
+            "cost": src.get("default_cost", "Free"),
+            "url": urllib.parse.urljoin(root + "/", a.group(1)), "image": None,
+        })
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -1342,7 +1480,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
-           "supabase_events": parse_supabase_events}
+           "supabase_events": parse_supabase_events, "audienceview": parse_audienceview,
+           "imis_events": parse_imis_events, "sitecore_sxa": parse_sitecore_sxa}
 
 
 # ---------------------------------------------------------------- assembly
@@ -1391,7 +1530,13 @@ def collect(sources, start, end, log):
                 continue
 
         kept = 0
+        # Optional per-source venue regex: lets a region-wide feed (e.g. an
+        # agency serving all of Peel/Halton/Toronto) contribute only what is
+        # in this city, plus anything online.
+        vf = re.compile(src["venue_filter"], re.I) if src.get("venue_filter") else None
         for e in raw:
+            if vf and not vf.search(e.get("venue") or ""):
+                continue
             sd = to_dt(e["start"], e.get("utc"))
             ed = to_dt(e["end"], e.get("utc")) or sd
             if not sd or not (start <= sd.date() <= end):
