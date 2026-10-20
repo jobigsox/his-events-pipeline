@@ -362,6 +362,10 @@ def web_search(query, cache, state):
             state["errors"] += 1
             k = type(e).__name__
             state["errkinds"][k] = state["errkinds"].get(k, 0) + 1
+            # Openverse doesn't answer from some cloud servers (GitHub Actions):
+            # after a few timeouts stop waiting on it, so the time goes to Pixabay.
+            if state["errkinds"].get("TimeoutError", 0) >= 3:
+                state["throttled"] = True
         return None
     result = None
     for r in results:
