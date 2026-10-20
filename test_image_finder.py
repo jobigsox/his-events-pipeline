@@ -72,7 +72,8 @@ class FinderTests(unittest.TestCase):
         cls.base = "http://127.0.0.1:%d" % cls.srv.server_port
         os.environ["NO_PROXY"] = "127.0.0.1,localhost"
         os.environ.pop("NO_IMAGE_SEARCH", None)
-        os.environ["IMAGE_FINDER_QUIET"] = "1"   # keep CI annotations for real cities
+        os.environ["IMAGE_FINDER_QUIET"] = "1"
+        F.USE_OPENVERSE = True     # the fake web serves an Openverse-style search   # keep CI annotations for real cities
         F.OPENVERSE = cls.base + "/search"
         F.PIXABAY = cls.base + "/pixabay"
         b = cls.base
@@ -213,6 +214,18 @@ class FinderTests(unittest.TestCase):
         e = self.ev("Kite Flying", "/broken", source="s2")
         self.run_fill([e])
         self.assertEqual(e["image"], self.base + "/img/org.jpg")
+
+    def test_openverse_off_by_default(self):
+        F.USE_OPENVERSE = False
+        try:
+            SEARCH["chess club"] = [{"url": self.base + "/img/org.jpg", "width": 1200,
+                                     "height": 800, "creator": "B", "license": "cc0", "title": "chess"}]
+            e = self.ev("Chess Club", "/broken", source="s2")
+            self.run_fill([e])
+            self.assertNotEqual(e["image_source"], "web-search")
+            self.assertFalse(any(h.startswith("/search") for h in HITS))
+        finally:
+            F.USE_OPENVERSE = True
 
     def test_search_query_cleanup(self):
         self.assertEqual(F.search_query("Social Scrabble (Online) - Hamilton 2026", "Hamilton"),

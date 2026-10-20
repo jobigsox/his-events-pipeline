@@ -6,9 +6,10 @@ so ~3 in 4 events used to fall back to the generic per-category art. This runs
 after collect() and tries, in order, until one works:
 
   1. the event's own page          - og:image / twitter:image / JSON-LD image
-  2. a web image search            - Pixabay first (free to use, no credit
-                                     required; needs PIXABAY_API_KEY), then
-                                     Openverse (CC0 / public domain only).
+  2. a web image search            - Pixabay (free to use, no credit
+                                     required; needs PIXABAY_API_KEY).
+                                     Openverse (CC0 / public domain) is kept
+                                     but off unless USE_OPENVERSE=1.
                                      Pixabay links expire, so the event keeps
                                      "pixabay:<id>" and the console fetches a
                                      fresh link when it sends the draft to Wix
@@ -59,6 +60,10 @@ LOGO_REPEAT = 4          # same picture on >= this many different titles in one 
 OPENVERSE = "https://api.openverse.org/v1/images/"
 PIXABAY = "https://pixabay.com/api/"
 MAX_PIXABAY = int(os.environ.get("IMAGE_MAX_PIXABAY", "60"))   # per city; API allows 100/min
+# Openverse is OFF by default: it never answers GitHub's servers (every request
+# timed out in Oct 2026), so it only wasted search time. Set USE_OPENVERSE=1
+# to switch it back on if that changes.
+USE_OPENVERSE = os.environ.get("USE_OPENVERSE", "").lower() in ("1", "true", "yes")
 OK_TYPES = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif")
 BAD_URL = re.compile(r"(logo|favicon|icon|sprite|placeholder|default[-_]?image|blank|spacer|"
                      r"avatar|gravatar|badge|banner-ad|pixel|1x1)", re.I)
@@ -327,13 +332,15 @@ def pixabay_search(query, cache, state):
 
 
 def web_search(query, cache, state):
-    """Openly licensed picture for `query`, or None. Returns (url, credit).
+    """Openly licensed picture for `query` from Openverse, or None. Returns (url, credit).
+
+    Off unless USE_OPENVERSE is set (see the note at the top).
 
     Only a real answer is cached ("found X" or "nothing suitable"). Timeouts
     and errors are NOT cached: an uncached Openverse query can take 10s+, and
     caching those failures as "no picture" used to silence the search for days.
     """
-    if not query:
+    if not (query and USE_OPENVERSE):
         return None
     hit = cache.get("web3", query)
     if hit is not None:
@@ -525,7 +532,9 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     counts = {}
     for e in events:
         counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
-    if os.environ.get("OPENVERSE_CLIENT_ID") and os.environ.get("OPENVERSE_CLIENT_SECRET"):
+    if not USE_OPENVERSE:
+        auth = "off"
+    elif os.environ.get("OPENVERSE_CLIENT_ID") and os.environ.get("OPENVERSE_CLIENT_SECRET"):
         auth = ("registered key OK" if _token["v"] else
                 "registered key NOT accepted (%s) - check the GitHub secrets / confirm the email"
                 % _token.get("err", "no searches tried"))
