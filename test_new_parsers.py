@@ -112,8 +112,9 @@ class Parsers(unittest.TestCase):
             ev = lambda t, city: {"title": t, "start_date": "2026-11-02 10:00:00",
                                   "end_date": "2026-11-02 11:00:00", "url": "https://a/" + t,
                                   "venue": {"venue": "Centre", "city": city} if city else []}
-            return {"total_pages": 30, "events": [ev("Job fair", "Brampton"), ev("Webinar", None),
-                                                  ev("Toronto thing", "Toronto")]}
+            return {"total_pages": 30, "events": [ev("Job fair", "Brampton"), ev("Resume Webinar", None),
+                                                  ev("Toronto thing", "Toronto"),
+                                                  ev("Pioneer Village Tour: In-Person", None)]}
         B.fetch = fake_fetch
         B.CITY = {"city": "Brampton", "manual_events": []}
         src = {"id": "achev", "name": "Achev", "kind": "tribe", "max_pages": 3,
@@ -123,7 +124,20 @@ class Parsers(unittest.TestCase):
         self.assertEqual(len(seen), 3)
         titles = {e["title"] for e in events}
         self.assertNotIn("Toronto thing", titles)
-        self.assertTrue(titles <= {"Job fair", "Webinar"})
+        self.assertNotIn("Pioneer Village Tour: In-Person", titles)   # no venue, not online
+        self.assertTrue(titles <= {"Job fair", "Resume Webinar"})
+
+    def test_capped_source_skips_min_score(self):
+        B.fetch_text = lambda url, *a, **k: IMIS
+        B.CITY = {"city": "Brampton", "manual_events": []}
+        src = {"id": "pama", "name": "PAMA", "kind": "imis_events",          # capped by default
+               "default_category": "social", "default_cost": "See website",
+               "url": "https://pama.imiscloud.com/PAMA/PAMA/Events/Events_List.aspx"}
+        events, _ = B.collect([src], START, END, log=lambda m: None)
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(e["capped_feed"] for e in events))
+        events, _ = B.collect([dict(src, capped=False)], START, END, log=lambda m: None)
+        self.assertEqual(events, [], "without the flag, unpriced museum events fall under MIN_SCORE")
 
 
 if __name__ == "__main__":

@@ -47,6 +47,9 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
 TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview"}
+# Feeds whose listings never carry a price, so the cost part of `score` can't
+# judge them: capped like ticketed feeds unless a source sets "capped": false.
+CAPPED_BY_DEFAULT = {"imis_events"}
 
 # ---------------------------------------------------------------- scoring
 
@@ -180,6 +183,7 @@ def parse_tribe(src, start, end):
                 v = v[0] if v and isinstance(v[0], dict) else {}
             if v:
                 venue = ", ".join(x for x in [v.get("venue"), v.get("address"), v.get("city")] if x)
+            had_venue = bool(venue)
             if not venue:
                 venue = "Online"
             cost = (e.get("cost") or "").strip() or "Free"
@@ -192,7 +196,7 @@ def parse_tribe(src, start, end):
                 "description": strip_html(e.get("description"))[:400],
                 "start": e.get("start_date"), "end": e.get("end_date"),
                 "utc": src.get("tz") == "utc",
-                "venue": venue, "cost": cost,
+                "venue": venue, "cost": cost, "no_venue": not had_venue,
                 "url": e.get("url"), "image": img,
             })
         page += 1
@@ -1535,7 +1539,7 @@ def collect(sources, start, end, log):
         # in this city, plus anything online.
         vf = re.compile(src["venue_filter"], re.I) if src.get("venue_filter") else None
         for e in raw:
-            if vf and not vf.search(e.get("venue") or ""):
+            if vf and not vf.search(e["title"] if e.get("no_venue") else (e.get("venue") or "")):
                 continue
             sd = to_dt(e["start"], e.get("utc"))
             ed = to_dt(e["end"], e.get("utc")) or sd
@@ -1545,6 +1549,11 @@ def collect(sources, start, end, log):
                 e["title"], e.get("description", ""), src.get("default_category", "practical"))
             e.update({
                 "sd": sd, "ed": ed, "category": cat, "source_kind": src.get("kind"),
+                # Ticketed feeds, plus any source flagged "capped" (e.g. a museum
+                # whose list has no prices), skip MIN_SCORE but share the
+                # best-5-per-4-weeks cap below.
+                "capped_feed": src.get("kind") in TICKETED_KINDS
+                               or bool(src.get("capped", src.get("kind") in CAPPED_BY_DEFAULT)),
                 "image": e.get("image") or src.get("image"),
             })
             e["score"] = score(e)
@@ -1558,7 +1567,7 @@ def collect(sources, start, end, log):
             # but students still go to paid concerts/festivals - they're capped
             # to the best few per rolling 4-week window below instead of being
             # vetted out here.
-            if e["score"] < MIN_SCORE and src.get("kind") not in TICKETED_KINDS:
+            if e["score"] < MIN_SCORE and not e["capped_feed"]:
                 continue
             events.append(e)
             kept += 1
@@ -1602,7 +1611,7 @@ def collect(sources, start, end, log):
     # practical/social feed.
     tm_buckets = {}
     for e in capped:
-        if e.get("source_kind") not in TICKETED_KINDS:
+        if not e.get("capped_feed"):
             continue
         idx = (e["sd"].date() - start).days // 28
         tm_buckets.setdefault(idx, []).append(e)
@@ -1611,7 +1620,7 @@ def collect(sources, start, end, log):
         lst.sort(key=lambda x: -x["score"])
         tm_keep.update(id(e) for e in lst[:5])
     capped = [e for e in capped
-              if e.get("source_kind") not in TICKETED_KINDS or id(e) in tm_keep]
+              if not e.get("capped_feed") or id(e) in tm_keep]
 
     capped.sort(key=lambda x: x["sd"])
     return capped, status
