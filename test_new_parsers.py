@@ -46,6 +46,41 @@ SXA = {"Results": [
 
 START, END = dt.date(2026, 10, 20), dt.date(2027, 1, 20)
 
+QUIC_EVENTS = [
+    {"title": "Night for your Mind ", "url": "/night-your-mind-0", "start": "2026-10-22T17:30:00", "end": "2026-10-22T19:00:00"},
+    {"title": "Drop-in Advising with the ISAs", "url": "/drop-advising-isas-808", "start": "2026-10-21T14:00:00", "end": "2026-10-21T15:00:00"},
+    {"title": "International Education Week: Soup Lunch and Panel ", "url": "/iew-soup", "start": "2026-11-18T12:00:00", "end": "2026-11-18T13:30:00"},
+    {"title": "Old thing", "url": "/old", "start": "2025-10-21T17:30:00", "end": "2025-10-21T19:00:00"},
+]
+QUIC_PAGE = ('<html><script type="application/json" data-drupal-selector="drupal-settings-json">'
+             + json.dumps({"fullCalendarView": [{"calendar_options": json.dumps(
+                 {"timeZone": "America/Toronto", "events": QUIC_EVENTS})}]}).replace("/", "\\/")
+             + "</script></html>")
+
+VK_PAGE = r'<script>window.csrfTokenName = "CRAFT_CSRF_TOKEN"; window.csrfTokenValue = "abc=";</script>'
+VK_RESULTS = """<div><section><h2 class="typo-h3">Special events</h2>
+<a class="group z-10 h-full focus:outline-none flex flex-col" href="https://www.visitkingston.ca/events/bees/">
+<time datetime="2026-06-22" class="x"></time><img src="https://www.visitkingston.ca/media/bees.jpg" alt="">
+<p class="typo-smallcaps text-magenta mb-8">History &amp; museums</p>
+<p class="typo-h4 group-hover:underline" lang="en">BEES! At The PumpHouse Museum</p>
+<p class="font-body text-14 text-dark m-0">June 22 - October 31, 2026<br>The PumpHouse Museum</p></a>
+<a class="group z-10 h-full focus:outline-none flex flex-col" href="https://www.visitkingston.ca/events/goodlife/">
+<time datetime="2026-10-22" class="x"></time>
+<p class="typo-h4 group-hover:underline" lang="en">It&#8217;s a Good Life If You Don&#8217;t Weaken</p>
+<p class="font-body text-14 text-dark m-0">October 22 - November 8, 2026<br>Kingston Grand Theatre</p></a>
+<a class="group z-10 h-full focus:outline-none flex flex-col" href="https://www.visitkingston.ca/events/mariachi/">
+<time datetime="2026-10-30" class="x"></time>
+<p class="typo-h4" lang="en">Mariachi Herencia de México</p>
+<p class="font-body text-14 text-dark m-0">October 30, 2026 • 7:30 pm<br>Isabel Bader Centre for the Performing Arts</p></a>
+<a class="group z-10 h-full focus:outline-none flex flex-col" href="https://www.visitkingston.ca/events/mariachi-2/">
+<time datetime="2026-10-30" class="x"></time>
+<p class="typo-h4" lang="en">Mariachi Herencia de México</p>
+<p class="font-body text-14 text-dark m-0">October 30, 2026 • 7:30 pm<br>Isabel Bader Centre</p></a>
+</section><section><h2 class="typo-h3">Recurring events</h2>
+<a class="group z-10 h-full flex flex-col" href="https://www.visitkingston.ca/events/trivia/">
+<p class="typo-h4" lang="en">Trivia At Daft Brewing</p>
+<p class="font-body text-14 text-dark m-0">Weekly on Wed • 7 pm<br>Daft</p></a></section></div>"""
+
 
 class Parsers(unittest.TestCase):
     def setUp(self):
@@ -138,6 +173,64 @@ class Parsers(unittest.TestCase):
         self.assertTrue(all(e["capped_feed"] for e in events))
         events, _ = B.collect([dict(src, capped=False)], START, END, log=lambda m: None)
         self.assertEqual(events, [], "without the flag, unpriced museum events fall under MIN_SCORE")
+
+    def test_drupal_fullcalendar_and_title_exclude(self):
+        B.fetch_text = lambda url, *a, **k: QUIC_PAGE
+        B.CITY = {"city": "Kingston", "manual_events": []}
+        src = {"id": "quic", "name": "QUIC", "kind": "drupal_fullcalendar",
+               "url": "https://quic.queensu.ca/event-calendar", "default_category": "practical",
+               "default_venue": "QUIC, Queen's University", "title_exclude": "drop-in advising"}
+        raw = B.parse_drupal_fullcalendar(src, START, END)
+        self.assertEqual(raw[0]["title"], "Night for your Mind")
+        self.assertEqual(raw[0]["start"], "2026-10-22 17:30")
+        self.assertEqual(raw[0]["url"], "https://quic.queensu.ca/night-your-mind-0")
+        events, _ = B.collect([src], START, END, log=lambda m: None)
+        titles = {e["title"] for e in events}
+        self.assertNotIn("Drop-in Advising with the ISAs", titles)
+        self.assertNotIn("Old thing", titles)
+
+    def test_visit_kingston(self):
+        sent = {}
+
+        class Resp:
+            def __init__(self, body):
+                self.body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return self.body.encode()
+
+        class Opener:
+            def open(self, req, timeout=None):
+                if req.get_method() == "POST":
+                    sent["body"] = json.loads(req.data)
+                    return Resp(json.dumps({"data": {"results": VK_RESULTS}}))
+                return Resp(VK_PAGE)
+        orig = B.urllib.request.build_opener
+        B.urllib.request.build_opener = lambda *a: Opener()
+        try:
+            out = B.parse_visit_kingston({"id": "vk", "name": "Visit Kingston",
+                                          "url": "https://www.visitkingston.ca/ajax/event-results",
+                                          "home": "https://www.visitkingston.ca/events/"}, START, END)
+        finally:
+            B.urllib.request.build_opener = orig
+        self.assertEqual(sent["body"]["CRAFT_CSRF_TOKEN"], "abc=")
+        self.assertEqual(sent["body"]["fromDate"], "2026-10-20")
+        self.assertEqual([e["title"] for e in out],
+                         ["BEES! At The PumpHouse Museum", "It’s a Good Life If You Don’t Weaken",
+                          "Mariachi Herencia de México"])          # duplicate + recurring dropped
+        bees, play, mar = out
+        self.assertEqual(bees["start"], "2026-10-20 00:00")              # clipped to window
+        self.assertEqual(bees["end"], "2026-10-31 00:00")
+        self.assertEqual(play["end"][:10], "2026-11-08")
+        self.assertEqual(mar["start"], "2026-10-30 19:30")
+        self.assertEqual(mar["venue"], "Isabel Bader Centre for the Performing Arts")
+        self.assertEqual(mar["cost"], "See website")
 
 
 if __name__ == "__main__":

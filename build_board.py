@@ -17,6 +17,7 @@ Standard library only, so it runs anywhere with Python 3.8+.
 import argparse
 import datetime as dt
 import html
+import http.cookiejar
 import json
 import os
 import re
@@ -46,7 +47,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # MIN_SCORE on cost alone, despite being exactly the kind of real festival/
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
-TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview"}
+TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview", "visit_kingston"}
 # Feeds whose listings never carry a price, so the cost part of `score` can't
 # judge them: capped like ticketed feeds unless a source sets "capped": false.
 CAPPED_BY_DEFAULT = {"imis_events"}
@@ -464,6 +465,7 @@ def _manual_events_for(src, start, end):
             "forced_category": e.get("category"),
             "already_live": e.get("already_live", False),
             "verify": e.get("verify"),
+            "hand_entered": True,
         })
     return out
 
@@ -1473,6 +1475,131 @@ def parse_sitecore_sxa(src, start, end):
     return out
 
 
+
+def parse_drupal_fullcalendar(src, start, end):
+    """Drupal 'FullCalendar View' pages (e.g. QUIC at Queen's): every event is
+    embedded in the page's drupal-settings-json as
+    fullCalendarView[n].calendar_options (a JSON string) -> events[]."""
+    text = fetch_text(src["url"])
+    m = re.search(r'<script type="application/json" data-drupal-selector="drupal-settings-json">(.*?)</script>',
+                  text, re.S)
+    if not m:
+        raise ValueError("no drupal-settings-json on page")
+    settings = json.loads(m.group(1))
+    views = settings.get("fullCalendarView") or []
+    if isinstance(views, dict):
+        views = list(views.values())
+    out, seen = [], set()
+    for v in views:
+        opts = v.get("calendar_options") or {}
+        if isinstance(opts, str):
+            opts = json.loads(opts)
+        for e in opts.get("events") or []:
+            s = (e.get("start") or "")[:16].replace("T", " ")
+            if not s:
+                continue
+            title = strip_html(e.get("title"))
+            key = (title.lower(), s)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": title, "description": "",
+                "start": s, "end": (e.get("end") or e["start"])[:16].replace("T", " "),
+                "utc": False, "venue": src.get("default_venue", ""),
+                "cost": src.get("default_cost", "Free"),
+                "url": urllib.parse.urljoin(src["url"], e.get("url") or ""), "image": None,
+            })
+    return out
+
+
+_MONTHS = {m: i for i, m in enumerate(
+    ["january", "february", "march", "april", "may", "june", "july", "august",
+     "september", "october", "november", "december"], 1)}
+
+
+def _vk_dates(text, fallback_start):
+    """'October 22 - November 8, 2026 • 7:30 pm' / 'October 1 - 31, 2026' /
+    'October 20, 2026 • 4:30 pm' -> (start_date, end_date, 'HH:MM'|None)."""
+    when, _, tm = text.partition("•")
+    m = re.match(r"\s*([A-Za-z]+)\s+(\d{1,2})(?:\s*-\s*(?:([A-Za-z]+)\s+)?(\d{1,2}))?,\s*(\d{4})", when)
+    sd = ed = None
+    if m:
+        mon1, d1, mon2, d2, y = m.groups()
+        y = int(y)
+        try:
+            sd = dt.date(y, _MONTHS[mon1.lower()], int(d1))
+            ed = dt.date(y, _MONTHS[(mon2 or mon1).lower()], int(d2)) if d2 else sd
+            if ed < sd:                      # "December 28 - January 3, 2027"
+                sd = sd.replace(year=y - 1)
+        except (KeyError, ValueError):
+            sd = ed = None
+    sd = sd or fallback_start
+    ed = ed or sd
+    hhmm = _sxa_time(tm) if tm.strip() else None
+    return sd, ed, hhmm
+
+
+def parse_visit_kingston(src, start, end):
+    """Visit Kingston (Craft CMS): the events page fetches its listing from
+    POST /ajax/event-results with a CSRF token from the page, returning HTML
+    cards. Only the 'Special events' section is used - 'Recurring events'
+    carry no dates and 'Top attractions' aren't events."""
+    page_url = src.get("home") or "https://www.visitkingston.ca/events/"
+    jar = urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+    opener = urllib.request.build_opener(jar)
+    hdr = {"User-Agent": UA, "Accept-Language": "en-CA,en;q=0.9"}
+    with opener.open(urllib.request.Request(page_url, headers=hdr), timeout=30) as r:
+        page = r.read().decode("utf-8", "replace")
+    name = re.search(r'window\.csrfTokenName\s*=\s*"([^"]+)"', page)
+    value = re.search(r'window\.csrfTokenValue\s*=\s*"((?:[^"\\]|\\.)*)"', page)
+    if not (name and value):
+        raise ValueError("no CSRF token on events page")
+    body = {"fromDate": start.isoformat(), "toDate": end.isoformat(), "category": "all",
+            "search": "", "language": "en", name.group(1): json.loads('"%s"' % value.group(1))}
+    req = urllib.request.Request(src["url"], data=json.dumps(body).encode(), method="POST",
+                                 headers=dict(hdr, **{"Content-Type": "application/json",
+                                                      "Accept": "application/json",
+                                                      "Referer": page_url}))
+    with opener.open(req, timeout=40) as r:
+        data = json.loads(r.read().decode("utf-8", "replace"))
+    results = (data.get("data") or {}).get("results") or ""
+    sections = re.split(r"<h2\b[^>]*>", results)
+    special = "".join(s for s in sections if re.match(r"\s*Special events", s, re.I)) or results
+    out, seen = [], set()
+    for href, card in re.findall(r'<a class="group[^"]*"\s+href="([^"]+)"[^>]*>(.*?)</a>', special, re.S):
+        title_m = re.search(r'<p class="typo-h4[^"]*"[^>]*>(.*?)</p>', card, re.S)
+        if not title_m:
+            continue
+        title = strip_html(title_m.group(1))
+        tattr = re.search(r'<time datetime="(\d{4}-\d{2}-\d{2})"', card)
+        fallback = dt.date.fromisoformat(tattr.group(1)) if tattr else None
+        info = re.search(r'<p class="font-body[^"]*"[^>]*>(.*?)</p>', card, re.S)
+        parts = re.split(r"<br\s*/?>", info.group(1)) if info else [""]
+        sd, ed, hhmm = _vk_dates(strip_html(parts[0]), fallback)
+        if not sd:
+            continue
+        if sd < start <= ed:
+            sd = start
+        key = (title.lower(), sd)
+        if key in seen:
+            continue
+        seen.add(key)
+        cat = re.search(r'typo-smallcaps[^>]*>(.*?)</p>', card, re.S)
+        img = re.search(r'<img[^>]+src="([^"]+)"', card)
+        t = hhmm or "00:00"
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title, "description": strip_html(cat.group(1)) if cat else "",
+            "start": "%s %s" % (sd.isoformat(), t), "end": "%s %s" % (ed.isoformat(), t),
+            "utc": False, "venue": strip_html(parts[1]) if len(parts) > 1 else "",
+            "cost": "See website", "url": html.unescape(href),
+            "image": html.unescape(img.group(1)) if img else None,
+        })
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -1485,7 +1612,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
            "supabase_events": parse_supabase_events, "audienceview": parse_audienceview,
-           "imis_events": parse_imis_events, "sitecore_sxa": parse_sitecore_sxa}
+           "imis_events": parse_imis_events, "sitecore_sxa": parse_sitecore_sxa,
+           "drupal_fullcalendar": parse_drupal_fullcalendar, "visit_kingston": parse_visit_kingston}
 
 
 # ---------------------------------------------------------------- assembly
@@ -1523,7 +1651,11 @@ def collect(sources, start, end, log):
                 continue
         else:
             try:
-                raw = parser(src, start, end)
+                # Hand-typed dates keyed to a crawled source (e.g. a welcome
+                # week the feed doesn't carry) ride along with the feed.
+                raw = list(parser(src, start, end))
+                if src.get("kind") != "manual":
+                    raw += _manual_events_for(src, start, end)
             except urllib.error.HTTPError as e:
                 status[src["id"]] = ("blocked", "HTTP %s" % e.code)
                 log("  %-34s BLOCKED (HTTP %s)" % (src["name"], e.code))
@@ -1538,8 +1670,13 @@ def collect(sources, start, end, log):
         # agency serving all of Peel/Halton/Toronto) contribute only what is
         # in this city, plus anything online.
         vf = re.compile(src["venue_filter"], re.I) if src.get("venue_filter") else None
+        # Optional per-source title regex to drop standing one-to-one services
+        # (e.g. daily "Drop-in Advising") that would otherwise flood the board.
+        tx = re.compile(src["title_exclude"], re.I) if src.get("title_exclude") else None
         for e in raw:
             if vf and not vf.search(e["title"] if e.get("no_venue") else (e.get("venue") or "")):
+                continue
+            if tx and tx.search(e.get("title") or ""):
                 continue
             sd = to_dt(e["start"], e.get("utc"))
             ed = to_dt(e["end"], e.get("utc")) or sd
@@ -1557,7 +1694,7 @@ def collect(sources, start, end, log):
                 "image": e.get("image") or src.get("image"),
             })
             e["score"] = score(e)
-            if src.get("kind") == "manual":
+            if src.get("kind") == "manual" or e.get("hand_entered"):
                 # A human already vetted these, so keyword scoring doesn't get a
                 # veto — Nuit Blanche reads as "art", not "newcomer", and would
                 # otherwise be dropped despite being one of the best free nights
