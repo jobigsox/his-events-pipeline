@@ -40,7 +40,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 DAY = 86400
-TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web": 60 * DAY, "home": 30 * DAY}
+TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web": 60 * DAY, "web2": 60 * DAY, "home": 30 * DAY}
 NEG_TTL = 3 * DAY                      # retry failures sooner than successes
 
 MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
@@ -48,7 +48,7 @@ MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "120"))  # per city
 # Seconds per city for each step, so a slow first step can't starve the later
 # ones (the web search used to get no turn at all in big cities).
 PAGE_BUDGET = float(os.environ.get("IMAGE_PAGE_BUDGET", "50"))
-SEARCH_BUDGET = float(os.environ.get("IMAGE_SEARCH_BUDGET", "35"))
+SEARCH_BUDGET = float(os.environ.get("IMAGE_SEARCH_BUDGET", "60"))
 HOME_BUDGET = float(os.environ.get("IMAGE_HOME_BUDGET", "15"))
 WORKERS = 12
 LOGO_REPEAT = 4          # same picture on >= this many different titles in one source
@@ -188,15 +188,17 @@ def check_image(url, cache):
         return bool(hit["v"])
     ok = False
     try:
-        status, headers, body = _get(url, timeout=8, max_bytes=65_536,
+        status, headers, body = _get(url, timeout=12, max_bytes=65_536,
                                      accept="image/avif,image/webp,image/*,*/*;q=0.8",
                                      headers={"Range": "bytes=0-65535"})
         ctype = (headers.get("Content-Type") or "").split(";")[0].strip().lower()
         size = headers.get("Content-Range", "").rpartition("/")[2] or headers.get("Content-Length")
         size = int(size) if size and size.isdigit() else len(body)
         ok = status in (200, 206) and ctype in OK_TYPES and size >= 12_000
-    except Exception:                              # noqa: BLE001
-        ok = False
+    except urllib.error.HTTPError:
+        ok = False                                 # a real "no": cache it
+    except Exception:                              # noqa: BLE001 - timeout etc: retry next run
+        return False
     cache.put("ok", url, ok)
     return ok
 
@@ -212,8 +214,10 @@ def fetch_page_images(url, cache):
         if status == 200 and "html" in ctype:
             charset = headers.get_content_charset() or "utf-8"
             imgs = page_images(body.decode(charset, "replace"), url)[:4]
-    except Exception:                              # noqa: BLE001
-        imgs = []
+    except urllib.error.HTTPError:
+        imgs = []                                  # a real answer (404, 403...): cache it
+    except Exception:                              # noqa: BLE001 - timeout etc: retry next run
+        return []
     cache.put("page", url, imgs)
     return imgs
 
@@ -253,36 +257,51 @@ def _openverse_headers():
 
 
 def web_search(query, cache, state):
-    """Openly licensed picture for `query`, or None. Returns (url, credit)."""
+    """Openly licensed picture for `query`, or None. Returns (url, credit).
+
+    Only a real answer is cached ("found X" or "nothing suitable"). Timeouts
+    and errors are NOT cached: an uncached Openverse query can take 10s+, and
+    caching those failures as "no picture" used to silence the search for days.
+    """
     if not query:
         return None
-    hit = cache.get("web", query)
+    hit = cache.get("web2", query)
     if hit is not None:
         return tuple(hit["v"]) if hit["v"] else None
-    if state["searches"] >= MAX_WEB_SEARCHES or state["throttled"]:
-        return None
-    state["searches"] += 1
-    result = None
+    with state["lock"]:
+        if state["searches"] >= MAX_WEB_SEARCHES or state["throttled"]:
+            return None
+        state["searches"] += 1
     try:
-        qs = urllib.parse.urlencode({"q": query, "license": "cc0,pdm", "page_size": 10,
-                                     "mature": "false", "size": "medium,large"})
-        status, headers, body = _get(OPENVERSE + "?" + qs, timeout=10, max_bytes=400_000,
+        qs = urllib.parse.urlencode({"q": query, "license": "cc0,pdm", "page_size": 20,
+                                     "mature": "false"})
+        status, headers, body = _get(OPENVERSE + "?" + qs, timeout=30, max_bytes=800_000,
                                      accept="application/json", headers=_openverse_headers())
-        for r in json.loads(body.decode("utf-8")).get("results", []):
-            w, h, url = r.get("width") or 0, r.get("height") or 0, r.get("url")
-            if not url or w < 640 or (h and w / h < 1.1) or looks_wrong(url):
-                continue
-            credit = "%s (%s, via Openverse)" % (r.get("creator") or "unknown",
-                                                (r.get("license") or "").upper())
-            result = (url, credit)
-            break
+        results = json.loads(body.decode("utf-8")).get("results", [])
     except urllib.error.HTTPError as e:
         if e.code == 429:
             state["throttled"] = True        # stop for this run; cache keeps what we have
-            return None
-    except Exception:                              # noqa: BLE001
-        result = None
-    cache.put("web", query, list(result) if result else "")
+        with state["lock"]:
+            state["errors"] += 1
+        return None
+    except Exception:                              # noqa: BLE001 - timeout etc: retry next run
+        with state["lock"]:
+            state["errors"] += 1
+        return None
+    result = None
+    for r in results:
+        w, h, url = r.get("width"), r.get("height"), r.get("url")
+        if not url or looks_wrong(url):
+            continue
+        if w and w < 640:                          # sizes are sometimes unknown: allow those
+            continue
+        if w and h and w / h < 1.1:                # prefer landscape for event banners
+            continue
+        credit = "%s (%s, via Openverse)" % (r.get("creator") or "unknown",
+                                            (r.get("license") or "").upper())
+        result = (url, credit)
+        break
+    cache.put("web2", query, list(result) if result else "")
     return result
 
 
@@ -299,7 +318,7 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     t0 = _now()
     cache = _Cache(cache_path or CACHE_PATH)
     by_src = {s["id"]: s for s in sources}
-    state = {"searches": 0, "throttled": False}
+    state = {"searches": 0, "throttled": False, "errors": 0, "lock": threading.Lock()}
     clock = {"deadline": _now() + PAGE_BUDGET}
     out_of_time = lambda: _now() > clock["deadline"]       # noqa: E731
 
@@ -372,11 +391,22 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
         q = search_query(e["title"], city_name)
         if q:
             queries.setdefault(q, []).append(e)
-    for q, evs in queries.items():
-        if out_of_time():
-            break
+    def search_one(q):
         found = web_search(q, cache, state)
-        if found and check_image(found[0], cache):
+        return found if found and check_image(found[0], cache) else None
+
+    # A few searches at a time: Openverse can be slow, but don't hammer it.
+    found_by_q = {}
+    with cf.ThreadPoolExecutor(4) as ex:
+        futs = {ex.submit(lambda q: None if out_of_time() else search_one(q), q): q for q in queries}
+        for f in cf.as_completed(futs):
+            try:
+                found_by_q[futs[f]] = f.result()
+            except Exception:                      # noqa: BLE001
+                pass
+    for q, evs in queries.items():
+        found = found_by_q.get(q)
+        if found:
             for e in evs:
                 e["image"], e["image_source"], e["image_credit"] = found[0], "web-search", found[1]
 
@@ -411,5 +441,7 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
         counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
     log("  pictures: %s%s (%.0fs, %d web searches%s)" % (
         ", ".join("%s %d" % kv for kv in sorted(counts.items())),
-        "", _now() - t0, state["searches"], ", search rate-limited" if state["throttled"] else ""))
+        "", _now() - t0, state["searches"],
+        (", %d search errors" % state["errors"] if state["errors"] else "")
+        + (", search rate-limited" if state["throttled"] else "")))
     return counts

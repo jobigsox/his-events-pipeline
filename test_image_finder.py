@@ -27,6 +27,7 @@ def png(w=900, h=600, pad=20_000):
 PAGES = {}
 IMAGES = {}
 SEARCH = {}
+FAIL = set()
 HITS = []
 
 
@@ -39,6 +40,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path.startswith("/search"):
             q = self.path.split("q=")[1].split("&")[0].replace("+", " ")
+            if q in FAIL:
+                return self._send(503, "text/plain", b"busy")
             body = json.dumps({"results": SEARCH.get(q, [])}).encode()
             return self._send(200, "application/json", body)
         if path in IMAGES:
@@ -155,6 +158,19 @@ class FinderTests(unittest.TestCase):
         self.run_fill([e])
         self.assertEqual(e["image_source"], "event-page")
         self.assertEqual(HITS, [], "everything should come from the cache")
+
+    def test_search_errors_are_not_cached(self):
+        """A slow/failed search must be retried next run, not remembered as 'nothing'."""
+        FAIL.add("pottery wheel")
+        e = self.ev("Pottery Wheel", "/broken", source="s2")
+        self.run_fill([e])
+        self.assertEqual(e["image_source"], "default")
+        FAIL.discard("pottery wheel")
+        SEARCH["pottery wheel"] = [{"url": self.base + "/img/scrabble.jpg", "width": None,
+                                    "height": None, "creator": "A", "license": "pdm"}]
+        e2 = self.ev("Pottery Wheel", "/broken", source="s2")
+        self.run_fill([e2])
+        self.assertEqual(e2["image_source"], "web-search")
 
     def test_search_query_cleanup(self):
         self.assertEqual(F.search_query("Social Scrabble (Online) - Hamilton 2026", "Hamilton"),

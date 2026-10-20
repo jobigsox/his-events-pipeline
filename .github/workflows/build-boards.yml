@@ -41,7 +41,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     outputs:
       summary: ${{ steps.counts.outputs.summary }}
     steps:
