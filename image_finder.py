@@ -6,9 +6,12 @@ so ~3 in 4 events used to fall back to the generic per-category art. This runs
 after collect() and tries, in order, until one works:
 
   1. the event's own page          - og:image / twitter:image / JSON-LD image
-  2. a web image search            - Openverse, openly licensed only (CC0 /
-                                     public domain), so HIS can publish it
-                                     on Wix without attribution or permission
+  2. a web image search            - Pixabay first (free to use, no credit
+                                     required; needs PIXABAY_API_KEY), then
+                                     Openverse (CC0 / public domain only).
+                                     Pixabay links expire, so the event keeps
+                                     "pixabay:<id>" and the console fetches a
+                                     fresh link when it sends the draft to Wix
   3. the organizer's home page     - its og:image
   4. (caller) per-category default - the existing "wix:<mediaId>" art
 
@@ -40,7 +43,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 DAY = 86400
-TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web3": 60 * DAY, "home": 30 * DAY}
+TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web3": 60 * DAY, "px": 60 * DAY, "home": 30 * DAY}
 NEG_TTL = 3 * DAY                      # retry failures sooner than successes
 
 MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
@@ -54,6 +57,8 @@ WORKERS = 12
 LOGO_REPEAT = 4          # same picture on >= this many different titles in one source
 
 OPENVERSE = "https://api.openverse.org/v1/images/"
+PIXABAY = "https://pixabay.com/api/"
+MAX_PIXABAY = int(os.environ.get("IMAGE_MAX_PIXABAY", "60"))   # per city; API allows 100/min
 OK_TYPES = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif")
 BAD_URL = re.compile(r"(logo|favicon|icon|sprite|placeholder|default[-_]?image|blank|spacer|"
                      r"avatar|gravatar|badge|banner-ad|pixel|1x1)", re.I)
@@ -268,6 +273,59 @@ def _openverse_headers():
         return {}
 
 
+def pixabay_search(query, cache, state):
+    """Pixabay photo for `query` -> ("pixabay:<id>", credit), or None.
+
+    Pixabay forbids permanent hotlinking and its image URLs expire, so only the
+    stable id is kept; the console asks Pixabay for a fresh URL at draft time
+    and Wix stores its own copy. Results are cached (Pixabay asks for >= 24h).
+    """
+    key = os.environ.get("PIXABAY_API_KEY")
+    if not (key and query):
+        return None
+    hit = cache.get("px", query)
+    if hit is not None:
+        return tuple(hit["v"]) if hit["v"] else None
+    with state["lock"]:
+        if state["px"] >= MAX_PIXABAY or state["px_throttled"]:
+            return None
+        state["px"] += 1
+    try:
+        qs = urllib.parse.urlencode({"key": key, "q": query[:100], "image_type": "photo",
+                                     "orientation": "horizontal", "safesearch": "true",
+                                     "per_page": 20, "min_width": 1000})
+        status, headers, body = _get(PIXABAY + "?" + qs, timeout=20, max_bytes=800_000,
+                                     accept="application/json")
+        hits = json.loads(body.decode("utf-8")).get("hits", [])
+    except urllib.error.HTTPError as e:
+        with state["lock"]:
+            if e.code == 429:
+                state["px_throttled"] = True
+            k = "pixabay HTTP %s" % e.code
+            state["errkinds"][k] = state["errkinds"].get(k, 0) + 1
+            state["errors"] += 1
+        return None
+    except Exception as e:                         # noqa: BLE001 - retry next run
+        with state["lock"]:
+            k = "pixabay " + type(e).__name__
+            state["errkinds"][k] = state["errkinds"].get(k, 0) + 1
+            state["errors"] += 1
+        return None
+    result = None
+    for h in hits:
+        if PEOPLE_WORDS.search(str(h.get("tags") or "")):
+            continue
+        url, pid = h.get("largeImageURL") or h.get("webformatURL"), h.get("id")
+        if not (url and pid):
+            continue
+        # The URL is fresh right now, so it can be checked; only the id is kept.
+        if check_image(url, cache):
+            result = ("pixabay:%s" % pid, "Pixabay / %s" % (h.get("user") or "contributor"))
+            break
+    cache.put("px", query, list(result) if result else "")
+    return result
+
+
 def web_search(query, cache, state):
     """Openly licensed picture for `query`, or None. Returns (url, credit).
 
@@ -338,7 +396,8 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     t0 = _now()
     cache = _Cache(cache_path or CACHE_PATH)
     by_src = {s["id"]: s for s in sources}
-    state = {"searches": 0, "throttled": False, "errors": 0, "errkinds": {}, "lock": threading.Lock()}
+    state = {"searches": 0, "throttled": False, "errors": 0, "errkinds": {}, "lock": threading.Lock(),
+             "px": 0, "px_throttled": False}
     clock = {"deadline": _now() + PAGE_BUDGET}
     out_of_time = lambda: _now() > clock["deadline"]       # noqa: E731
 
@@ -412,10 +471,13 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
         if q:
             queries.setdefault(q, []).append(e)
     def search_one(q):
+        found = pixabay_search(q, cache, state)       # already verified, keeps only the id
+        if found:
+            return found
         found = web_search(q, cache, state)
         return found if found and check_image(found[0], cache) else None
 
-    # A few searches at a time: Openverse can be slow, but don't hammer it.
+    # A few searches at a time: the services can be slow, but don't hammer them.
     found_by_q = {}
     with cf.ThreadPoolExecutor(4) as ex:
         futs = {ex.submit(lambda q: None if out_of_time() else search_one(q), q): q for q in queries}
@@ -465,12 +527,15 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
                 % _token.get("err", "no searches tried"))
     else:
         auth = "no key (anonymous)"
-    report = {"counts": counts, "webSearches": state["searches"], "searchErrors": state["errkinds"],
+    report = {"counts": counts, "webSearches": state["searches"], "pixabaySearches": state["px"],
+              "pixabay": "key set" if os.environ.get("PIXABAY_API_KEY") else "no key",
+              "searchErrors": state["errkinds"],
               "rateLimited": state["throttled"], "searchAuth": auth,
               "seconds": round(_now() - t0)}
     if not os.environ.get("IMAGE_FINDER_QUIET"):
-        print("::notice title=pictures %s::%s, %d web searches (%s)%s%s" % (
-        city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["searches"], auth,
+        print("::notice title=pictures %s::%s, pixabay %d (%s), openverse %d (%s)%s%s" % (
+        city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["px"],
+        report["pixabay"], state["searches"], auth,
         ", errors %s" % state["errkinds"] if state["errors"] else "",
         ", rate-limited" if state["throttled"] else ""))
     log("  pictures: %s%s (%.0fs, %d web searches%s)" % (

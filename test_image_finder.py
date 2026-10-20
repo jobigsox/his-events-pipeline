@@ -27,6 +27,7 @@ def png(w=900, h=600, pad=20_000):
 PAGES = {}
 IMAGES = {}
 SEARCH = {}
+PIXA = {}
 FAIL = set()
 HITS = []
 
@@ -38,6 +39,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         HITS.append(self.path)
         path = self.path.split("?")[0]
+        if path.startswith("/pixabay"):
+            q = self.path.split("q=")[1].split("&")[0].replace("+", " ")
+            body = json.dumps({"hits": PIXA.get(q, [])}).encode()
+            return self._send(200, "application/json", body)
         if path.startswith("/search"):
             q = self.path.split("q=")[1].split("&")[0].replace("+", " ")
             if q in FAIL:
@@ -69,6 +74,7 @@ class FinderTests(unittest.TestCase):
         os.environ.pop("NO_IMAGE_SEARCH", None)
         os.environ["IMAGE_FINDER_QUIET"] = "1"   # keep CI annotations for real cities
         F.OPENVERSE = cls.base + "/search"
+        F.PIXABAY = cls.base + "/pixabay"
         b = cls.base
         IMAGES.update({
             "/img/parade.jpg": ("image/jpeg", png()),
@@ -182,6 +188,31 @@ class FinderTests(unittest.TestCase):
         e = self.ev("Military Leadership", "/broken", source="s2")
         self.run_fill([e])
         self.assertEqual(e["image"], self.base + "/img/scrabble.jpg")
+
+    def test_pixabay_first_and_keeps_only_the_id(self):
+        PIXA["bike repair"] = [
+            {"id": 111, "largeImageURL": self.base + "/img/parade.jpg", "tags": "portrait, man",
+             "user": "x"},
+            {"id": 222, "largeImageURL": self.base + "/img/scrabble.jpg", "tags": "bicycle, tools",
+             "user": "Jane"}]
+        SEARCH["bike repair"] = [{"url": self.base + "/img/org.jpg", "width": 1200, "height": 800,
+                                  "creator": "B", "license": "cc0", "title": "bike"}]
+        os.environ["PIXABAY_API_KEY"] = "test"
+        try:
+            e = self.ev("Bike Repair", "/broken", source="s2")
+            self.run_fill([e])
+        finally:
+            del os.environ["PIXABAY_API_KEY"]
+        self.assertEqual(e["image"], "pixabay:222")          # person photo 111 skipped
+        self.assertEqual(e["image_source"], "web-search")
+        self.assertIn("Pixabay / Jane", e["image_credit"])
+
+    def test_without_pixabay_key_openverse_is_used(self):
+        SEARCH["kite flying"] = [{"url": self.base + "/img/org.jpg", "width": 1200, "height": 800,
+                                  "creator": "B", "license": "cc0", "title": "kite"}]
+        e = self.ev("Kite Flying", "/broken", source="s2")
+        self.run_fill([e])
+        self.assertEqual(e["image"], self.base + "/img/org.jpg")
 
     def test_search_query_cleanup(self):
         self.assertEqual(F.search_query("Social Scrabble (Online) - Hamilton 2026", "Hamilton"),

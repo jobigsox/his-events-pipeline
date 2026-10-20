@@ -82,6 +82,8 @@ jobs:
           # rate limit. Without them searches still run, just fewer per week.
           OPENVERSE_CLIENT_ID: ${{ secrets.OPENVERSE_CLIENT_ID }}
           OPENVERSE_CLIENT_SECRET: ${{ secrets.OPENVERSE_CLIENT_SECRET }}
+          # Optional: free Pixabay API key - the first web search for event pictures.
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           MONTHS: ${{ inputs.months || '3' }}
           MIN_SCORE: ${{ inputs.min_score || '55' }}
           CITY: ${{ inputs.city || '' }}
