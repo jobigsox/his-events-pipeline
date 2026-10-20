@@ -14,3 +14,6 @@ data.js
 
 # Picture-finder cache (persisted between CI runs by actions/cache)
 .cache/
+
+# Local secrets - never commit
+openverse-credentials.txt
