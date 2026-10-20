@@ -44,7 +44,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 DAY = 86400
-TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web3": 60 * DAY, "px": 60 * DAY, "home": 30 * DAY}
+TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web3": 60 * DAY, "px2": 60 * DAY, "home": 30 * DAY}
 NEG_TTL = 3 * DAY                      # retry failures sooner than successes
 
 MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
@@ -254,6 +254,55 @@ def search_query(title, city):
     return " ".join(words[:4]).lower()
 
 
+# Fallback stock-photo queries for programme words that make specific titles
+# ("Family Movies at Turner Park") findable. First match wins; order matters.
+TOPIC_QUERIES = [
+    (r"\bmovies?\b|\bfilm\b|\bcinema\b", "cinema popcorn"),
+    (r"knit|crochet|yarn", "knitting yarn"),
+    (r"\bchess\b", "chess"),
+    (r"cross.?stitch|embroider|sewing|serger|quilt", "sewing"),
+    (r"book club|book chat|reading|story|stories|poetry", "books reading"),
+    (r"writer|writing|zine|journal", "writing notebook"),
+    (r"tech help|computer|internet|laptop|digital|email|cyber|coding|python", "laptop computer"),
+    (r"3d (design|print)|maker|cricut|laser", "3d printer"),
+    (r"canva|graphic design|photoshop", "graphic design"),
+    (r"resume|r\u00e9sum\u00e9|job|employ|career|interview|hiring", "job interview"),
+    (r"immigra|settlement|newcomer|refugee|citizenship", "welcome diversity"),
+    (r"mindful|meditat|yoga|tai.?chi|qigong|wellness", "meditation calm"),
+    (r"mental health|peer support|trauma|counsel", "support hands"),
+    (r"english|conversation|language|esl|french|spanish", "conversation coffee"),
+    (r"tax|finance|money|budget|bank", "calculator finance"),
+    (r"lego|game|board game|tabletop|trivia", "board games"),
+    (r"art|paint|draw|sketch|creative", "painting art"),
+    (r"music|concert|choir|jazz|guitar", "concert music"),
+    (r"garden|plant|seed", "gardening"),
+    (r"health|clinic|nurse|blood pressure|vaccin", "health clinic"),
+    (r"information table|community partner|drop.?in|visit", "community centre"),
+]
+
+
+def search_variants(title, city):
+    """Queries to try for an event title, most specific first (max 4)."""
+    out = []
+
+    def add(q):
+        q = (q or "").strip().lower()
+        if q and q not in out:
+            out.append(q)
+
+    base = re.split(r"\s+at\s+", title, maxsplit=1, flags=re.I)[0]   # drop "at <branch>"
+    add(search_query(base, city))
+    parts = [p for p in re.split(r"\s[-\u2013\u2014|:]\s|:\s", base) if p.strip()]
+    for part in parts[1:] + parts[:1]:
+        words = search_query(part, city).split()
+        add(" ".join(words[:2]))
+    for pattern, q in TOPIC_QUERIES:
+        if re.search(pattern, title, re.I):
+            add(q)
+            break
+    return out[:4]
+
+
 _token = {"v": None, "exp": 0}
 
 
@@ -306,7 +355,7 @@ def pixabay_search(query, cache, state):
     key = os.environ.get("PIXABAY_API_KEY")
     if not (key and query):
         return None
-    hit = cache.get("px", query)
+    hit = cache.get("px2", query)
     if hit is not None:
         return tuple(hit["v"]) if hit["v"] else None
     with state["lock"]:
@@ -342,11 +391,12 @@ def pixabay_search(query, cache, state):
         url, pid = h.get("largeImageURL") or h.get("webformatURL"), h.get("id")
         if not (url and pid):
             continue
-        # The URL is fresh right now, so it can be checked; only the id is kept.
-        if check_image(url, cache):
+        # Pixabay's own curated photos: trust the API rather than probing its CDN
+        # (which can refuse range requests). Only the stable id is kept.
+        if (h.get("imageWidth") or 1000) >= 640:
             result = ("pixabay:%s" % pid, "Pixabay / %s" % (h.get("user") or "contributor"))
             break
-    cache.put("px", query, list(result) if result else "")
+    cache.put("px2", query, list(result) if result else "")
     return result
 
 
@@ -495,17 +545,23 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     # 2. Openly licensed web search on the event title (best-scored events first).
     stage(SEARCH_BUDGET)
     need = sorted((e for e in events if not e.get("image")), key=lambda x: -x.get("score", 0))
-    queries = {}
+    queries, variants = {}, {}
     for e in need:
-        q = search_query(e["title"], city_name)
-        if q:
-            queries.setdefault(q, []).append(e)
+        vs = search_variants(e["title"], city_name)
+        if vs:
+            queries.setdefault(vs[0], []).append(e)
+            variants.setdefault(vs[0], vs)
+
     def search_one(q):
-        found = pixabay_search(q, cache, state)       # already verified, keeps only the id
-        if found:
-            return found
-        found = web_search(q, cache, state)
-        return found if found and check_image(found[0], cache) else None
+        # Specific first ("chess"), then simpler fallbacks ("community centre").
+        for v in variants.get(q, [q]):
+            found = pixabay_search(v, cache, state)   # keeps only the id
+            if found:
+                return found
+            found = web_search(v, cache, state)
+            if found and check_image(found[0], cache):
+                return found
+        return None
 
     # A few searches at a time: the services can be slow, but don't hammer them.
     found_by_q = {}

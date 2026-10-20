@@ -227,6 +227,23 @@ class FinderTests(unittest.TestCase):
         finally:
             F.USE_OPENVERSE = True
 
+    def test_simpler_fallback_query_when_specific_finds_nothing(self):
+        PIXA["cinema popcorn"] = [{"id": 333, "largeImageURL": self.base + "/img/org.jpg",
+                                   "tags": "cinema, popcorn", "user": "Kim"}]
+        os.environ["PIXABAY_API_KEY"] = "test"
+        try:
+            e = self.ev("Family Movies at Turner Park", "/broken", source="s2")
+            self.run_fill([e])
+        finally:
+            del os.environ["PIXABAY_API_KEY"]
+        self.assertEqual(e["image"], "pixabay:333")
+
+    def test_search_variants(self):
+        self.assertEqual(F.search_variants("Family Movies at Turner Park", "Hamilton"),
+                         ["family movies", "cinema popcorn"])
+        self.assertIn("job interview",
+                      F.search_variants("Information Table - YWCA Employment Services", "Hamilton"))
+
     def test_search_query_cleanup(self):
         self.assertEqual(F.search_query("Social Scrabble (Online) - Hamilton 2026", "Hamilton"),
                          "social scrabble")
