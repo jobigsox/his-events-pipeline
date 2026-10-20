@@ -40,11 +40,11 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
 DAY = 86400
-TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web": 60 * DAY, "web2": 60 * DAY, "home": 30 * DAY}
+TTL = {"page": 30 * DAY, "ok": 14 * DAY, "web3": 60 * DAY, "home": 30 * DAY}
 NEG_TTL = 3 * DAY                      # retry failures sooner than successes
 
 MAX_PAGE_FETCHES = int(os.environ.get("IMAGE_MAX_PAGES", "500"))   # per city
-MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "120"))  # per city
+MAX_WEB_SEARCHES = int(os.environ.get("IMAGE_MAX_SEARCHES", "40"))   # per city, so later cities get a share
 # Seconds per city for each step, so a slow first step can't starve the later
 # ones (the web search used to get no turn at all in big cities).
 PAGE_BUDGET = float(os.environ.get("IMAGE_PAGE_BUDGET", "50"))
@@ -58,6 +58,14 @@ OK_TYPES = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif")
 BAD_URL = re.compile(r"(logo|favicon|icon|sprite|placeholder|default[-_]?image|blank|spacer|"
                      r"avatar|gravatar|badge|banner-ad|pixel|1x1)", re.I)
 BAD_EXT = re.compile(r"\.(svg|ico|bmp|tiff?)(\?|#|$)", re.I)
+
+# Stand-in pictures must never show identifiable real people (politicians,
+# officials, celebrities): skip news/encyclopedia sources and person-ish titles.
+EXCLUDED_SOURCES = "wikimedia,wikimedia_audio,nasa,smithsonian_national_portrait_gallery"
+PEOPLE_WORDS = re.compile(r"\b(president|prime minister|minister|secretary|senator|mayor|"
+                          r"governor|king|queen|prince|princess|ambassador|general|"
+                          r"chancellor|met with|meets|meeting with|portrait|headshot|"
+                          r"selfie|celebrity|actor|actress|singer)\b", re.I)
 
 STOP = set("""a an and the of for to in on at by with from or & - – — | : drop-in dropin
 drop online virtual session sessions workshop workshops program programme class classes series
@@ -265,7 +273,7 @@ def web_search(query, cache, state):
     """
     if not query:
         return None
-    hit = cache.get("web2", query)
+    hit = cache.get("web3", query)
     if hit is not None:
         return tuple(hit["v"]) if hit["v"] else None
     with state["lock"]:
@@ -274,7 +282,8 @@ def web_search(query, cache, state):
         state["searches"] += 1
     try:
         qs = urllib.parse.urlencode({"q": query, "license": "cc0,pdm", "page_size": 20,
-                                     "mature": "false"})
+                                     "mature": "false", "category": "photograph,digitized_artwork",
+                                     "excluded_source": EXCLUDED_SOURCES})
         status, headers, body = _get(OPENVERSE + "?" + qs, timeout=30, max_bytes=800_000,
                                      accept="application/json", headers=_openverse_headers())
         results = json.loads(body.decode("utf-8")).get("results", [])
@@ -291,7 +300,10 @@ def web_search(query, cache, state):
     result = None
     for r in results:
         w, h, url = r.get("width"), r.get("height"), r.get("url")
-        if not url or looks_wrong(url):
+        if not url or looks_wrong(url) or "wikimedia.org" in url:
+            continue
+        if PEOPLE_WORDS.search(" ".join(str(r.get(k) or "") for k in ("title", "creator"))
+                               + " " + " ".join(str(x.get("name", "")) for x in r.get("tags") or [])):
             continue
         if w and w < 640:                          # sizes are sometimes unknown: allow those
             continue
@@ -301,7 +313,7 @@ def web_search(query, cache, state):
                                             (r.get("license") or "").upper())
         result = (url, credit)
         break
-    cache.put("web2", query, list(result) if result else "")
+    cache.put("web3", query, list(result) if result else "")
     return result
 
 
@@ -439,6 +451,10 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     counts = {}
     for e in events:
         counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
+    print("::notice title=pictures %s::%s, %d web searches%s%s" % (
+        city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["searches"],
+        ", %d errors" % state["errors"] if state["errors"] else "",
+        ", rate-limited" if state["throttled"] else ""))
     log("  pictures: %s%s (%.0fs, %d web searches%s)" % (
         ", ".join("%s %d" % kv for kv in sorted(counts.items())),
         "", _now() - t0, state["searches"],

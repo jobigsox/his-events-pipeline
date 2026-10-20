@@ -172,6 +172,16 @@ class FinderTests(unittest.TestCase):
         self.run_fill([e2])
         self.assertEqual(e2["image_source"], "web-search")
 
+    def test_photos_of_real_people_are_skipped(self):
+        SEARCH["military leadership"] = [
+            {"url": self.base + "/img/parade.jpg", "width": 1200, "height": 800, "creator": "DoD",
+             "license": "pdm", "title": "President met with the Secretary of Defense"},
+            {"url": self.base + "/img/scrabble.jpg", "width": 1200, "height": 800, "creator": "B",
+             "license": "cc0", "title": "Compass on a map"}]
+        e = self.ev("Military Leadership", "/broken", source="s2")
+        self.run_fill([e])
+        self.assertEqual(e["image"], self.base + "/img/scrabble.jpg")
+
     def test_search_query_cleanup(self):
         self.assertEqual(F.search_query("Social Scrabble (Online) - Hamilton 2026", "Hamilton"),
                          "social scrabble")
