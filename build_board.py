@@ -1587,16 +1587,19 @@ def main():
     events, status = collect(sources, start, end, log)
     log("  %s\n  %d events kept after de-dupe" % ("-" * 46, len(events)))
 
+    picture_report = None
     # Most feeds carry no picture; look one up (event page -> openly licensed
     # web search -> organizer site) before falling back to the category art.
     if not a.no_images:
         try:
             from image_finder import fill_images
-            fill_images(events, sources, CITY["city"], log)
+            picture_report = fill_images(events, sources, CITY["city"], log)
         except Exception as ex:                   # noqa: BLE001 - pictures never break a build
             log("  pictures: skipped (%s)" % type(ex).__name__)
 
     data = payload(events, sources, status, keys, a.top, start, end)
+    if picture_report:
+        data["pictureReport"] = picture_report     # coverage + search health, for checking
 
     if a.json:
         with open(a.json, "w", encoding="utf-8") as f:

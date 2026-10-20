@@ -67,6 +67,7 @@ class FinderTests(unittest.TestCase):
         cls.base = "http://127.0.0.1:%d" % cls.srv.server_port
         os.environ["NO_PROXY"] = "127.0.0.1,localhost"
         os.environ.pop("NO_IMAGE_SEARCH", None)
+        os.environ["IMAGE_FINDER_QUIET"] = "1"   # keep CI annotations for real cities
         F.OPENVERSE = cls.base + "/search"
         b = cls.base
         IMAGES.update({

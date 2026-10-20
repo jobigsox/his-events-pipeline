@@ -260,7 +260,11 @@ def _openverse_headers():
             tok = json.loads(r.read().decode())
         _token.update(v=tok["access_token"], exp=_now() + int(tok.get("expires_in", 3600)))
         return {"Authorization": "Bearer " + _token["v"]}
-    except Exception:                              # noqa: BLE001
+    except urllib.error.HTTPError as e:
+        _token["err"] = "HTTP %s" % e.code      # 401 = wrong id/secret, or email not confirmed
+        return {}
+    except Exception as e:                         # noqa: BLE001
+        _token["err"] = type(e).__name__
         return {}
 
 
@@ -292,10 +296,14 @@ def web_search(query, cache, state):
             state["throttled"] = True        # stop for this run; cache keeps what we have
         with state["lock"]:
             state["errors"] += 1
+            k = "HTTP %s" % e.code
+            state["errkinds"][k] = state["errkinds"].get(k, 0) + 1
         return None
-    except Exception:                              # noqa: BLE001 - timeout etc: retry next run
+    except Exception as e:                         # noqa: BLE001 - timeout etc: retry next run
         with state["lock"]:
             state["errors"] += 1
+            k = type(e).__name__
+            state["errkinds"][k] = state["errkinds"].get(k, 0) + 1
         return None
     result = None
     for r in results:
@@ -330,7 +338,7 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     t0 = _now()
     cache = _Cache(cache_path or CACHE_PATH)
     by_src = {s["id"]: s for s in sources}
-    state = {"searches": 0, "throttled": False, "errors": 0, "lock": threading.Lock()}
+    state = {"searches": 0, "throttled": False, "errors": 0, "errkinds": {}, "lock": threading.Lock()}
     clock = {"deadline": _now() + PAGE_BUDGET}
     out_of_time = lambda: _now() > clock["deadline"]       # noqa: E731
 
@@ -452,16 +460,22 @@ def fill_images(events, sources, city_name, log=print, cache_path=None):
     for e in events:
         counts[e["image_source"]] = counts.get(e["image_source"], 0) + 1
     if os.environ.get("OPENVERSE_CLIENT_ID") and os.environ.get("OPENVERSE_CLIENT_SECRET"):
-        auth = "registered key OK" if _token["v"] else "registered key NOT accepted - check the GitHub secrets"
+        auth = ("registered key OK" if _token["v"] else
+                "registered key NOT accepted (%s) - check the GitHub secrets / confirm the email"
+                % _token.get("err", "no searches tried"))
     else:
         auth = "no key (anonymous)"
-    print("::notice title=pictures %s::%s, %d web searches (%s)%s%s" % (
+    report = {"counts": counts, "webSearches": state["searches"], "searchErrors": state["errkinds"],
+              "rateLimited": state["throttled"], "searchAuth": auth,
+              "seconds": round(_now() - t0)}
+    if not os.environ.get("IMAGE_FINDER_QUIET"):
+        print("::notice title=pictures %s::%s, %d web searches (%s)%s%s" % (
         city_name, ", ".join("%s %d" % kv for kv in sorted(counts.items())), state["searches"], auth,
-        ", %d errors" % state["errors"] if state["errors"] else "",
+        ", errors %s" % state["errkinds"] if state["errors"] else "",
         ", rate-limited" if state["throttled"] else ""))
     log("  pictures: %s%s (%.0fs, %d web searches%s)" % (
         ", ".join("%s %d" % kv for kv in sorted(counts.items())),
         "", _now() - t0, state["searches"],
         (", %d search errors" % state["errors"] if state["errors"] else "")
         + (", search rate-limited" if state["throttled"] else "")))
-    return counts
+    return report
