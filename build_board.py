@@ -46,7 +46,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # MIN_SCORE on cost alone, despite being exactly the kind of real festival/
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
-TICKETED_KINDS = {"ticketmaster", "ottawa_tourism"}
+TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "downtown_kelowna_events"}
 
 # ---------------------------------------------------------------- scoring
 
@@ -1354,6 +1354,87 @@ def _jet_section(html_doc, heading, next_headings):
     return [v.strip().lstrip("-").strip() for v in _JET_FIELD.findall(rest[:cut])]
 
 
+def _jet_discover_links(src):
+    """Enumerate an Elementor+JetEngine 'events' custom post type's own
+    permalinks, for any site. Tries the plain WP REST route for the post type
+    first (`/wp-json/wp/v2/<rest_type>` off `src["home"]`, default rest_type
+    "events" - confirmed working as-is on both cciottawa.ca and
+    downtownkelowna.com, same custom-post-type-not-tribe pattern already
+    documented for carleton_events) since it's the most reliable: no feed
+    config to go wrong. Falls back to the archive's own `/feed/` RSS (what
+    this parser originally used) for a site where the CPT isn't REST-exposed
+    but the archive still emits one - NOTE this feed can be a trap: a site
+    that doesn't make the post type's own archive feed is default-enabled
+    will have WordPress silently serve the unrelated *comments* feed instead
+    (title literally "Comments on: Events") with zero items - harmless here
+    since zero links just means zero events, but worth knowing if this ever
+    returns suspiciously 0 on a site you can see real events on in a
+    browser."""
+    root = (src.get("home") or src["url"]).rstrip("/")
+    rest_type = src.get("rest_type", "events")
+    try:
+        posts = fetch(root + "/wp-json/wp/v2/%s?per_page=100" % rest_type)
+        links = [p["link"] for p in posts if p.get("link")]
+        if links:
+            return links
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError):
+        pass
+    try:
+        feed = fetch_text(src["url"].rstrip("/") + "/feed/",
+                          accept="application/rss+xml, application/xml, text/xml")
+    except (urllib.error.URLError, UnicodeDecodeError):
+        return []
+    return [html.unescape(u) for u in re.findall(r"<link>(.*?)</link>", feed)[1:]]
+
+
+def parse_downtown_kelowna_events(src, start, end):
+    """Downtown Kelowna BIA's 'events' CPT - same Elementor+JetEngine family
+    as `jet_events` but a different template: no Date:/Time:/Venue headings
+    to anchor on, just a flat ordered run of `jet-listing-dynamic-field__content`
+    values on each event's own page - [title, start_date, start_dow, end_date,
+    end_dow, start_time, end_time], dates as 'Mon D, YYYY' (not the
+    full-month 'Month D, YYYY' cci-ottawa uses). No venue or price field
+    exists anywhere on these pages (checked 2026-10-21) - this BIA page is a
+    generic downtown-entertainment listing (touring musicals etc., often
+    6-12 months out), not newcomer/student programming, so cost defaults to
+    'Ticketed' and needs the same `TICKETED_KINDS` MIN_SCORE exemption as
+    ottawa_tourism/ticketmaster or everything here scores zero on cost alone
+    despite being a real, major show worth knowing about."""
+    out = []
+    for link in _jet_discover_links(src):
+        try:
+            page = fetch_text(link)
+        except (urllib.error.URLError, UnicodeDecodeError):
+            continue
+        tm = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        if not tm:
+            continue
+        title = html.unescape(strip_html(tm.group(1)))
+        # The title itself is an <h1 class="jet-listing-dynamic-field__content">,
+        # not a <div> - _JET_FIELD (which requires a </div> close) skips it,
+        # so this list starts directly at the date fields, not the title.
+        vals = [v.strip() for v in _JET_FIELD.findall(page[page.find("<body"):])]
+        if len(vals) < 6:
+            continue
+        sd_raw, _, ed_raw, _, st_raw, et_raw = vals[:6]
+        try:
+            sd = dt.datetime.strptime(sd_raw + " " + st_raw, "%b %d, %Y %I:%M %p")
+            ed = dt.datetime.strptime(ed_raw + " " + et_raw, "%b %d, %Y %I:%M %p")
+        except ValueError:
+            continue
+        if not (start <= sd.date() <= end):
+            continue
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title, "description": "",
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": ed.strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": src.get("default_venue", src["name"]),
+            "cost": "Ticketed", "url": link, "image": None,
+        })
+    return out
+
+
 def parse_jet_events(src, start, end):
     """WordPress + Elementor + JetEngine 'dynamic listing' events (the pattern
     documented as a dead end for CCI Ottawa on 2026-09-09/09-10: per-element
@@ -1374,12 +1455,7 @@ def parse_jet_events(src, start, end):
     `/feed/` is appended to it for discovery, then each entry's own page is
     fetched for the real date/time/venue. One request per event found, so
     keep this off very high-volume calendars."""
-    feed_url = src["url"].rstrip("/") + "/feed/"
-    try:
-        feed = fetch_text(feed_url, accept="application/rss+xml, application/xml, text/xml")
-    except (urllib.error.URLError, UnicodeDecodeError):
-        return []
-    links = [html.unescape(u) for u in re.findall(r"<link>(.*?)</link>", feed)[1:]]
+    links = _jet_discover_links(src)
     out = []
     for link in links:
         try:
@@ -1444,7 +1520,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
-           "supabase_events": parse_supabase_events, "jet_events": parse_jet_events}
+           "supabase_events": parse_supabase_events, "jet_events": parse_jet_events,
+           "downtown_kelowna_events": parse_downtown_kelowna_events}
 
 
 # ---------------------------------------------------------------- assembly
