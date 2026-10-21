@@ -1391,10 +1391,14 @@ def parse_downtown_kelowna_events(src, start, end):
     """Downtown Kelowna BIA's 'events' CPT - same Elementor+JetEngine family
     as `jet_events` but a different template: no Date:/Time:/Venue headings
     to anchor on, just a flat ordered run of `jet-listing-dynamic-field__content`
-    values on each event's own page - [title, start_date, start_dow, end_date,
-    end_dow, start_time, end_time], dates as 'Mon D, YYYY' (not the
-    full-month 'Month D, YYYY' cci-ottawa uses). No venue or price field
-    exists anywhere on these pages (checked 2026-10-21) - this BIA page is a
+    values on each event's own page. A MULTI-day event gets 6 values
+    ([start_date, start_dow, end_date, end_dow, start_time, end_time]); a
+    single-day event gets only 4 ([date, dow, start_time, end_time]) with no
+    separate end-date field at all - 31 of this site's 40 events are the
+    4-value single-day shape (checked 2026-10-21), so treating 6 as the only
+    valid length silently dropped 78% of real events here. Dates are
+    'Mon D, YYYY' (not the full-month 'Month D, YYYY' cci-ottawa uses). No
+    venue or price field exists anywhere on these pages - this BIA page is a
     generic downtown-entertainment listing (touring musicals etc., often
     6-12 months out), not newcomer/student programming, so cost defaults to
     'Ticketed' and needs the same `TICKETED_KINDS` MIN_SCORE exemption as
@@ -1414,9 +1418,13 @@ def parse_downtown_kelowna_events(src, start, end):
         # not a <div> - _JET_FIELD (which requires a </div> close) skips it,
         # so this list starts directly at the date fields, not the title.
         vals = [v.strip() for v in _JET_FIELD.findall(page[page.find("<body"):])]
-        if len(vals) < 6:
+        if len(vals) >= 6:
+            sd_raw, _, ed_raw, _, st_raw, et_raw = vals[:6]
+        elif len(vals) == 4:
+            sd_raw, _, st_raw, et_raw = vals[:4]
+            ed_raw = sd_raw
+        else:
             continue
-        sd_raw, _, ed_raw, _, st_raw, et_raw = vals[:6]
         try:
             sd = dt.datetime.strptime(sd_raw + " " + st_raw, "%b %d, %Y %I:%M %p")
             ed = dt.datetime.strptime(ed_raw + " " + et_raw, "%b %d, %Y %I:%M %p")
