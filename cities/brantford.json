@@ -76,7 +76,8 @@
       "default_category": "spiritual", "tz": "local", "enabled": true, "image": null,
       "notes": "Mandarin/Cantonese-language church running a university-student transition seminar series (大学生系列讲座) aimed at international students - the clearest spiritual fit found for Brantford. Standing Sunday (2-3:15pm, currently via Zoom) and Thursday (7-8:30pm) programs, no dated-event feed. Registered manual with an empty list per the no-recurring-events rule; contact pastor@brantfordcac.org for specific dated sessions." },
     {"id": "sanderson-centre", "name": "Sanderson Centre", "kind": "probe", "url": "https://www.sandersoncentre.ca/", "home": "https://www.sandersoncentre.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Sanderson Centre holiday shows' (Nov-Dec) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
-    {"id": "glenhyrst-art-gallery-of-brant", "name": "Glenhyrst Art Gallery of Brant", "kind": "probe", "url": "https://www.glenhyrst.ca/", "home": "https://www.glenhyrst.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Brantford Lights at Glenhyrst' (Dec-Jan) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."}
+    {"id": "glenhyrst-art-gallery-of-brant", "name": "Glenhyrst Art Gallery of Brant", "kind": "probe", "url": "https://www.glenhyrst.ca/", "home": "https://www.glenhyrst.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-19 from the must-do events sweep: 'Brantford Lights at Glenhyrst' (Dec-Jan) was missing from this city's board. Venue/calendar site with many events - needs a parser (probe until then)."},
+    {"id": "brantford-remembrance-day-ceremony", "name": "City of Brantford Remembrance Day Services", "kind": "manual", "url": "https://www.brantford.ca/en/city-of-brantford-announces-2025-remembrance-day-services.aspx", "home": "https://www.brantford.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-21 from the must-do events sweep: the civic Remembrance Day service at the Brant County War Memorial was missing from this city's board - the kind of civic event a general-purpose assistant would surface even though it isn't student-specific. Recent years' format: a walking march from Harmony Square to the memorial, a civic service with a fly-past, an overnight cenotaph lighting display and cadet vigil from 6pm Nov 10 to 10:30am Nov 11. 2026's official city announcement not yet posted as of this sweep (only a third-party aggregator listing found) - hand-enter confirmed 2026 times as manual_events once brantford.ca/RemembranceDay publishes them."}
   ],
   "manual_events": [
     { "source_id": "brantford-festivals", "title": "Brantford Ribfest",
@@ -88,6 +89,11 @@
       "start": "2026-08-29T12:00:00", "end": "2026-08-29T20:00:00",
       "category": "social", "venue": "Harmony Square, Brantford",
       "cost": "Free", "url": "https://www.brantford.ca/things-to-do/recreation/events/",
-      "already_live": false, "verify": "Celebration of African, Caribbean and Black cultures - confirm exact 2026 date/hours before drafting, only found via search summary." }
+      "already_live": false, "verify": "Celebration of African, Caribbean and Black cultures - confirm exact 2026 date/hours before drafting, only found via search summary." },
+    { "source_id": "brantford-remembrance-day-ceremony", "title": "City of Brantford Remembrance Day Service",
+      "start": "2026-11-11T10:30:00", "end": "2026-11-11T11:30:00",
+      "category": "social", "venue": "Brant County War Memorial (Cenotaph), Brantford",
+      "cost": "Free", "url": "https://www.brantford.ca/en/city-of-brantford-announces-2025-remembrance-day-services.aspx",
+      "already_live": false, "verify": "Date (Nov 11) is fixed by tradition but the city had not published its official 2026 schedule as of this sweep (2026-10-21) - a third-party aggregator lists an overnight cenotaph lighting/cadet vigil Nov 10 6pm-Nov 11 7am; confirm the main service start time (recent years ~10:30-11am after a Harmony Square march) before drafting. Seating at the main service has been restricted to veterans and companions in recent years." }
   ]
 }

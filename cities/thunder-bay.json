@@ -59,7 +59,9 @@
       "url": "https://myclubs.lusu.ca/Directory/JoinClub?clubID=15193b43-933a-48da-9524-500af2d44d20",
       "home": "https://www.facebook.com/lucfpage/", "default_category": "spiritual",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "On-campus InterVarsity-affiliated Christian group at Lakehead - the clearest campus-based spiritual fit found for Thunder Bay (per the onboarding reference's 'campus chaplaincies, student Christian groups' archetype). Only reachable via the LUSU club directory and Facebook, no standalone site with a schedule/feed - registered manual with an empty list. Lakehead's own Chaplaincy office (lakeheadu.ca/students/student-life/student-services/tb/chaplaincy) is a second candidate worth checking for multi-faith programming, not yet explored." }
+      "notes": "On-campus InterVarsity-affiliated Christian group at Lakehead - the clearest campus-based spiritual fit found for Thunder Bay (per the onboarding reference's 'campus chaplaincies, student Christian groups' archetype). Only reachable via the LUSU club directory and Facebook, no standalone site with a schedule/feed - registered manual with an empty list. Lakehead's own Chaplaincy office (lakeheadu.ca/students/student-life/student-services/tb/chaplaincy) is a second candidate worth checking for multi-faith programming, not yet explored." },
+    {"id": "thunder-bay-remembrance-day-ceremony", "name": "Thunder Bay Remembrance Day Ceremonies", "kind": "manual", "url": "https://tbnewswatch.com/local-news/thunder-bay-prepares-to-mark-remembrance-day-7817802", "home": "https://www.thunderbay.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-21 from the must-do events sweep: the civic Remembrance Day ceremonies were missing from this city's board - the kind of civic event a general-purpose assistant would surface even though it isn't student-specific. Thunder Bay runs several concurrent services: the main indoor ceremony at Fort William Gardens (parade, gun salutes, wreath-laying, ~10:30am seating), Waverley Park cenotaph (Royal Canadian Legion Port Arthur Branch No. 5, ~10:20am), and Mount McKay/Anemki Wajiw (Fort William First Nation, ~10:15am). No 2026 schedule published yet as of this sweep - hand-enter confirmed 2026 times/venues as manual_events once the Legion or city announces them."},
+    {"id": "thunder-bay-rotary-santa-claus-parade", "name": "Rotary Santa Claus Parade (Thunder Bay)", "kind": "manual", "url": "https://rotaryparade.ca/", "home": "https://rotaryparade.ca/", "default_category": "social", "tz": "local", "enabled": true, "image": null, "notes": "Added 2026-10-21 from the must-do events sweep: the annual Rotary Santa Claus Parade was missing from this city's board - a long-running major civic parade (33rd edition in 2025, ~20,000 spectators) along Memorial Avenue from the Real Canadian Superstore to the Thunder Bay Community Auditorium. No 2026 date published yet as of this sweep (2025's was Nov 15) - hand-enter once rotaryparade.ca or local news (tbnewswatch.com) announces it; never invent dates."}
   ],
   "manual_events": [
     { "source_id": "thunderbay-festivals", "title": "Ribfest",
@@ -71,6 +73,11 @@
       "start": "2026-09-18T18:00:00", "end": "2026-09-18T22:00:00",
       "category": "social", "venue": "Marina Park, Thunder Bay",
       "cost": "Free", "url": "https://www.thunderbay.ca/en/tbay-games/new-ctb-events.aspx",
-      "already_live": false, "verify": "City-run evening arts/culture event - confirmed date via the City's 2026 events list, exact hours are a placeholder, confirm before drafting." }
+      "already_live": false, "verify": "City-run evening arts/culture event - confirmed date via the City's 2026 events list, exact hours are a placeholder, confirm before drafting." },
+    { "source_id": "thunder-bay-remembrance-day-ceremony", "title": "Remembrance Day Ceremony - Fort William Gardens",
+      "start": "2026-11-11T10:30:00", "end": "2026-11-11T12:00:00",
+      "category": "social", "venue": "Fort William Gardens, Thunder Bay",
+      "cost": "Free", "url": "https://tbnewswatch.com/local-news/thunder-bay-prepares-to-mark-remembrance-day-7817802",
+      "already_live": false, "verify": "Date (Nov 11) is fixed by tradition; 2024 coverage said spectators should be seated by 10:30am for the main Fort William Gardens ceremony, but no 2026 schedule was published as of this sweep (2026-10-21) - confirm start time, and note parallel ceremonies at Waverley Park cenotaph (~10:20am) and Mount McKay (~10:15am) before drafting." }
   ]
 }
