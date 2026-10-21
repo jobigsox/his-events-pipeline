@@ -1331,6 +1331,108 @@ def parse_ticketmaster(src, start, end):
     return out
 
 
+_JET_FIELD = re.compile(r'jet-listing-dynamic-field__content"\s*>([^<]*)</div>')
+
+
+def _jet_section(html_doc, heading, next_headings):
+    """Slice the HTML between an Elementor <h2>/<h3> heading with this exact
+    text and whichever of `next_headings` comes first after it (or the end of
+    the doc), then pull every JetEngine dynamic-field value out of that slice.
+    Looking up the stable `jet-listing-dynamic-field__content` class instead
+    of the surrounding `elementor-element-<hash>` wrapper is what makes this
+    survive the hash regenerating every time CCI re-saves the page in the
+    editor (see the cci-ottawa notes in cities/ottawa.json)."""
+    m = re.search(r'>%s<' % re.escape(heading), html_doc)
+    if not m:
+        return []
+    rest = html_doc[m.end():]
+    cut = len(rest)
+    for nh in next_headings:
+        m2 = re.search(r'>%s<' % re.escape(nh), rest)
+        if m2:
+            cut = min(cut, m2.start())
+    return [v.strip().lstrip("-").strip() for v in _JET_FIELD.findall(rest[:cut])]
+
+
+def parse_jet_events(src, start, end):
+    """WordPress + Elementor + JetEngine 'dynamic listing' events (the pattern
+    documented as a dead end for CCI Ottawa on 2026-09-09/09-10: per-element
+    classes are `elementor-element-<hash>` and regenerate every time the page
+    is re-saved, too fragile to scrape directly). Found 2026-10-21 while
+    testing a Firecrawl headless render against it: Firecrawl/Jina's rendered
+    markdown wasn't actually doing anything a plain stdlib GET couldn't -
+    this org's events ARE server-rendered - the real fix is reading the
+    stable `jet-listing-dynamic-field__content` class JetEngine always wraps
+    the actual value in, regardless of the hash, plus the plain WordPress
+    `/feed/` RSS the events archive exposes for free to enumerate event
+    permalinks (WordPress default: last 10 posts/events, by publish date -
+    covers this org's ~monthly batch-of-4 publishing cadence with room to
+    spare; may miss an event published far ahead of a 10-item window on a
+    busier site).
+
+    `src["url"]` is the events archive (e.g. 'https://cciottawa.ca/events/');
+    `/feed/` is appended to it for discovery, then each entry's own page is
+    fetched for the real date/time/venue. One request per event found, so
+    keep this off very high-volume calendars."""
+    feed_url = src["url"].rstrip("/") + "/feed/"
+    try:
+        feed = fetch_text(feed_url, accept="application/rss+xml, application/xml, text/xml")
+    except (urllib.error.URLError, UnicodeDecodeError):
+        return []
+    links = [html.unescape(u) for u in re.findall(r"<link>(.*?)</link>", feed)[1:]]
+    out = []
+    for link in links:
+        try:
+            page = fetch_text(link)
+        except (urllib.error.URLError, UnicodeDecodeError):
+            continue
+        tm = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        if not tm:
+            continue
+        title = html.unescape(strip_html(tm.group(1)))
+
+        dates = _jet_section(page, "Date:", ("Time:",))
+        times = _jet_section(page, "Time:", ("Event Category:", "Venue"))
+        if not dates or not times:
+            continue
+        sd_raw, ed_raw = dates[0], dates[-1]
+        st_raw, et_raw = times[0], times[-1]
+        try:
+            sd = dt.datetime.strptime(sd_raw + " " + st_raw, "%B %d, %Y %I:%M %p")
+            ed = dt.datetime.strptime(ed_raw + " " + et_raw, "%B %d, %Y %I:%M %p")
+        except ValueError:
+            continue
+        if not (start <= sd.date() <= end):
+            continue
+
+        room_m = re.search(r">Venue<.*?<h3[^>]*>([^<]*)</h3>", page, re.S)
+        addr = _jet_section(page, "Venue", ("Organizer", "Share:"))
+        venue = ", ".join(x for x in [
+            html.unescape(room_m.group(1)).strip() if room_m else None,
+            addr[-1] if addr else None,
+        ] if x) or src.get("default_venue", src["name"])
+
+        desc_chunk = page[tm.end():page.find(">Event Details<")]
+        # A handful of CCI's own posts have a typo'd AM start time for what
+        # is obviously a daytime workshop (e.g. "3:00 AM - 4:30 PM") - surface
+        # it rather than silently "fixing" it, since only the org can confirm
+        # which side of the typo is wrong.
+        verify = ("Site's own page lists a %s start for this event - "
+                  "confirm before drafting, may be a typo." % st_raw) \
+                 if sd.hour < 6 else None
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title,
+            "description": strip_html(desc_chunk)[:400],
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": ed.strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": venue,
+            "cost": src.get("default_cost", "Free"),
+            "url": link, "image": None, "verify": verify,
+        })
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -1342,7 +1444,7 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
-           "supabase_events": parse_supabase_events}
+           "supabase_events": parse_supabase_events, "jet_events": parse_jet_events}
 
 
 # ---------------------------------------------------------------- assembly
