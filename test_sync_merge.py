@@ -80,6 +80,17 @@ class MergeTests(unittest.TestCase):
         merged, _ = merge_config(FILE, console)
         self.assertEqual(sorted(e["title"] for e in merged["manual_events"]), ["Console only", "Market", "Parade"])
 
+    def test_console_row_keeps_file_only_fields(self):
+        """Milton's LibCal cal_id: the console row lacked it and the crawl died."""
+        f = dict(FILE, sources=[dict(FILE["sources"][0], cal_id="8238", capped=True)])
+        console = {"sources": [{"id": "lib", "name": "Library (edited)", "kind": "communico",
+                                "url": "https://lib/x", "capped": None}]}
+        merged, _ = merge_config(f, console)
+        lib = merged["sources"][0]
+        self.assertEqual(lib["name"], "Library (edited)")
+        self.assertEqual(lib["cal_id"], "8238")
+        self.assertTrue(lib["capped"])
+
     def test_city_metadata_from_console_wins_but_blanks_do_not_erase(self):
         console = {"sources": [], "timezone": "America/Vancouver", "wix": {}}
         merged, _ = merge_config(FILE, console)

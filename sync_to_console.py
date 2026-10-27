@@ -63,7 +63,9 @@ SOURCE_LIST_KEYS = ("sources", "manual_events", "removed_sources", "removed_manu
 def merge_config(file_cfg, console_cfg):
     """Union of the committed file and the console's export.
 
-    - Console version wins for any source id both have (console edits stick).
+    - Console version wins for any source id both have (console edits stick),
+      field by field: a field the console row lacks or leaves null keeps the
+      committed file's value.
     - File-only sources are KEPT (the console may not have them yet, or the
       push failed this run) - this is what stops a city losing its sources the
       moment the console gains its first one.
@@ -86,7 +88,13 @@ def merge_config(file_cfg, console_cfg):
             dropped.append(sid)
             continue
         if sid in con:
-            out.append(con[sid])
+            # Console values win, but only for fields it actually holds: the
+            # console doesn't store every parser-specific setting (Milton's
+            # LibCal cal_id went missing exactly this way), so a field the
+            # console row lacks or leaves null keeps the committed value.
+            row = dict(s)
+            row.update({k: v for k, v in con[sid].items() if v is not None or k not in s})
+            out.append(row)
             used.add(sid)
         else:
             out.append(s)
