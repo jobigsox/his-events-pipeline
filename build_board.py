@@ -228,7 +228,9 @@ def parse_tribe(src, start, end):
             had_venue = bool(venue)
             if not venue:
                 venue = "Online"
-            cost = (e.get("cost") or "").strip() or "Free"
+            # A blank cost means "Free" on community feeds, but a tourism feed
+            # that never fills it in sets its own default_cost instead.
+            cost = (e.get("cost") or "").strip() or src.get("default_cost", "Free")
             img = None
             if isinstance(e.get("image"), dict):
                 img = e["image"].get("url")
