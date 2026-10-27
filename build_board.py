@@ -1049,17 +1049,26 @@ def parse_libcal(src, start, end):
     severe undercount. One call per day in the window is the only correct
     way to cover it; `perpage` is generously sized in case several branches
     have concurrent events on the same day."""
+    # The console's copy of a source replaces the committed one wholesale, so
+    # don't assume `cal_id` survived the round trip: fall back to a `?c=` on
+    # the url (the calendar page's own address carries it).
+    cal_id = src.get("cal_id") or (urllib.parse.parse_qs(
+        urllib.parse.urlsplit(src["url"]).query).get("c") or [None])[0]
+    if not cal_id:
+        raise ValueError("libcal source has no cal_id (and no ?c= on its url)")
+    base = src["url"].split("?")[0].rstrip("/")
     out, seen = [], set()
     day = start
     while day <= end:
-        url = (src["url"].rstrip("/") + "/ajax/calendar/list?" + urllib.parse.urlencode({
-            "c": src["cal_id"], "date": day.strftime("%Y-%m-%d"), "perpage": 50,
+        url = (base + "/ajax/calendar/list?" + urllib.parse.urlencode({
+            "c": cal_id, "date": day.strftime("%Y-%m-%d"), "perpage": 50,
         }))
         data = fetch(url)
         for e in data.get("results") or []:
-            if e["id"] in seen:
+            key = e.get("id") or e.get("url") or (e.get("title"), e.get("startdt"))
+            if key in seen or not e.get("startdt"):
                 continue
-            seen.add(e["id"])
+            seen.add(key)
             out.append({
                 "source_id": src["id"], "source": src["name"],
                 "title": html.unescape(e.get("title", "")).strip(),
@@ -1931,8 +1940,11 @@ def collect(sources, start, end, log):
                 log("  %-34s BLOCKED (HTTP %s)" % (src["name"], e.code))
                 continue
             except Exception as e:                      # noqa: BLE001 - fail soft per source
-                status[src["id"]] = ("dead", type(e).__name__)
-                log("  %-34s FAILED (%s)" % (src["name"], type(e).__name__))
+                # Name the exception AND its message: a bare "KeyError" in the
+                # crawl log doesn't say which field went missing.
+                why = ("%s: %s" % (type(e).__name__, e))[:120]
+                status[src["id"]] = ("dead", why)
+                log("  %-34s FAILED (%s)" % (src["name"], why))
                 continue
 
         kept = 0
