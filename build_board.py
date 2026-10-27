@@ -17,11 +17,11 @@ Standard library only, so it runs anywhere with Python 3.8+.
 import argparse
 import datetime as dt
 import html
-import http.cookiejar
 import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -47,10 +47,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # MIN_SCORE on cost alone, despite being exactly the kind of real festival/
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
-TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview", "visit_kingston"}
-# Feeds whose listings never carry a price, so the cost part of `score` can't
-# judge them: capped like ticketed feeds unless a source sets "capped": false.
-CAPPED_BY_DEFAULT = {"imis_events"}
+TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "downtown_kelowna_events"}
 
 # ---------------------------------------------------------------- scoring
 
@@ -65,7 +62,8 @@ CONNECT = ("social", "meet", "mixer", "games", "festival", "dinner", "brunch",
            "bbq", "coffee", "gathering", "celebration", "concert", "film")
 EXCLUDE = ("senior", "age 55", "0-6", "2-6", "kids", "children", "child care",
            "earlyon", "toddler", "parent", "caregiver", "disabilit", "13-17",
-           "high school", "grade ")
+           "high school", "grade ", "prenatal", "pregnan", "preschool",
+           "storytime", "babies", "baby ")
 
 # "service" alone is a trap: it matches "Employment Services" and "Support
 # Services" far more often than a worship service. Keep the terms unambiguous.
@@ -134,29 +132,67 @@ def score(ev):
 
 # ---------------------------------------------------------------- fetching
 
-def fetch_text(url, timeout=30, accept="text/html,application/xhtml+xml,*/*"):
-    req = urllib.request.Request(url, headers={
+_TRANSIENT_HTTP = (429, 502, 503, 504)   # rate-limited / gateway hiccups - standard
+                                          # client robustness to retry, unlike a 403
+                                          # (which means "not welcome" rather than
+                                          # "try again"; that gets no blanket retry
+                                          # here, only the govstack-specific handling)
+
+
+def fetch_text(url, timeout=30, accept="text/html,application/xhtml+xml,*/*", extra_headers=None):
+    headers = {
         "User-Agent": UA,
         "Accept": accept,
         "Accept-Language": "en-CA,en;q=0.9",
-    })
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        raw = r.read()
-        # Blindly decoding as UTF-8 mojibakes smart quotes/dashes on sites
-        # that declare (and actually serve) a different charset, e.g.
-        # windows-1252 WordPress installs - respect the server's own header
-        # when present, only falling back to UTF-8 if it's missing or wrong.
-        charset = r.headers.get_content_charset()
-        if charset:
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    req = urllib.request.Request(url, headers=headers)
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read()
+                # Blindly decoding as UTF-8 mojibakes smart quotes/dashes on sites
+                # that declare (and actually serve) a different charset, e.g.
+                # windows-1252 WordPress installs - respect the server's own header
+                # when present, only falling back to UTF-8 if it's missing or wrong.
+                charset = r.headers.get_content_charset()
+                if charset:
+                    try:
+                        return raw.decode(charset, "strict")
+                    except (LookupError, UnicodeDecodeError):
+                        pass
+                return raw.decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code not in _TRANSIENT_HTTP or attempt == 2:
+                raise
+            retry_after = e.headers.get("Retry-After") if e.headers else None
             try:
-                return raw.decode(charset, "strict")
-            except (LookupError, UnicodeDecodeError):
-                pass
-        return raw.decode("utf-8", "replace")
+                wait = float(retry_after) if retry_after else 1.5 * (attempt + 1)
+            except ValueError:
+                wait = 1.5 * (attempt + 1)
+            time.sleep(min(wait, 10))
 
 
 def fetch(url, timeout=25):
-    return json.loads(fetch_text(url, timeout, "application/json, text/plain, */*"))
+    text = fetch_text(url, timeout, "application/json, text/plain, */*")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Some WordPress installs intermittently prepend a stray PHP
+        # notice/warning (a plugin deprecation, a theme function emitting
+        # output too early) before the real JSON body - St. Paul's Bloor
+        # Street's tribe feed hit exactly this (JSONDecodeError on an
+        # otherwise-valid-looking response). Trimming to the outermost
+        # {...} or [...] recovers the real payload in that case; if the
+        # response genuinely isn't JSON at all, the trim still fails to
+        # parse and the original error is what the caller sees - this
+        # never masks a truly broken feed, only a cosmetic prefix on one.
+        start = min((i for i in (text.find("{"), text.find("[")) if i != -1), default=-1)
+        end = max(text.rfind("}"), text.rfind("]"))
+        if start != -1 and end > start:
+            return json.loads(text[start:end + 1])
+        raise
 
 
 def strip_html(s):
@@ -167,7 +203,7 @@ def strip_html(s):
 def parse_tribe(src, start, end):
     """The Events Calendar REST API."""
     out, page, pages = [], 1, 1
-    while page <= pages and page <= int(src.get("max_pages") or 6):
+    while page <= pages and page <= 6:
         q = urllib.parse.urlencode({
             "start_date": start.isoformat(),
             "end_date": end.isoformat(),
@@ -184,7 +220,6 @@ def parse_tribe(src, start, end):
                 v = v[0] if v and isinstance(v[0], dict) else {}
             if v:
                 venue = ", ".join(x for x in [v.get("venue"), v.get("address"), v.get("city")] if x)
-            had_venue = bool(venue)
             if not venue:
                 venue = "Online"
             cost = (e.get("cost") or "").strip() or "Free"
@@ -197,7 +232,7 @@ def parse_tribe(src, start, end):
                 "description": strip_html(e.get("description"))[:400],
                 "start": e.get("start_date"), "end": e.get("end_date"),
                 "utc": src.get("tz") == "utc",
-                "venue": venue, "cost": cost, "no_venue": not had_venue,
+                "venue": venue, "cost": cost,
                 "url": e.get("url"), "image": img,
             })
         page += 1
@@ -465,7 +500,6 @@ def _manual_events_for(src, start, end):
             "forced_category": e.get("category"),
             "already_live": e.get("already_live", False),
             "verify": e.get("verify"),
-            "hand_entered": True,
         })
     return out
 
@@ -1244,6 +1278,33 @@ _GOVSTACK_NOISE = re.compile(
     r'|\bbudget (meeting|deliberation)', re.I)
 
 
+def _fetch_govstack_page(url, home, retries=3):
+    """fetch_text with a fuller browser-shaped header set and short retries
+    on 403 - see the "2026-10-27" note on parse_govstack_calendar for why.
+    Only used here, not swapped into fetch_text globally, so a platform
+    that's already working elsewhere can't be regressed by a header this
+    particular vendor's bot protection happens to dislike."""
+    extra = {
+        "Referer": home,
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Dest": "document",
+        "DNT": "1",
+    }
+    last_err = None
+    for attempt in range(retries):
+        try:
+            return fetch_text(url, extra_headers=extra)
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code != 403 or attempt == retries - 1:
+                raise
+            time.sleep(2 * (attempt + 1))   # 2s, 4s - a soft challenge/rate
+                                             # limit often clears by then
+    raise last_err
+
+
 def parse_govstack_calendar(src, start, end):
     """eSolutionsGroup/GovStack (Umbraco-based) municipal calendar platform -
     seen on Brantford's library/city/tourism calendars, Thunder Bay's
@@ -1263,15 +1324,30 @@ def parse_govstack_calendar(src, start, end):
     (capital D) where Brantford/Thunder Bay/Kitchener use lowercase - so the
     detail-link match is case-insensitive; a case-sensitive match silently
     returns 0 raw events on a tenant that capitalizes it, same failure shape
-    as the aria-label-vs-inner-text trap above."""
+    as the aria-label-vs-inner-text trap above.
+
+    2026-10-27: every tenant on this platform (Brantford library, Thunder
+    Bay, Kitchener) started 403ing the same week, despite "confirmed
+    working" on 2026-09-09 - this is the eSolutionsGroup/GovStack bot
+    protection catching GitHub Actions' well-known runner IPs and/or
+    urllib's bare TLS fingerprint, not a parser or URL regression (a plain
+    browser-style fetch of the same URL still loads fine). There's no
+    stdlib way to spoof a TLS fingerprint, so this can't be made bulletproof
+    without a third-party dependency this project deliberately avoids - but
+    a fuller browser-shaped header set (Referer, Sec-Fetch-*, DNT) plus a
+    couple of short retries clears a soft rate-limit/challenge noticeably
+    more often than the bare request does, and still reports a clean
+    "blocked HTTP 403" instead of hanging or silently returning nothing if
+    the IP itself is hard-blocked."""
     out, seen = [], set()
     cursor = start.replace(day=1)
+    home = src["url"].rstrip("/") + "/"
     for _ in range(6):
         if cursor > end:
             break
         url = (src["url"].rstrip("/") + "/default/Month?StartDate=%02d/01/%d"
                % (cursor.month, cursor.year))
-        page = fetch_text(url)
+        page = _fetch_govstack_page(url, home)
         for m in re.finditer(
             r'href="(/default/Detail/(\d{4})-(\d{2})-(\d{2})-(\d{2})(\d{2})-[^"]+)"'
             r'\s+aria-label="View (.+?) on \w+ \d{1,2}, \d{4} \d{1,2}:\d{2}\s*[ap]m"', page,
@@ -1337,265 +1413,188 @@ def parse_ticketmaster(src, start, end):
     return out
 
 
-
-def parse_audienceview(src, start, end):
-    """AudienceView box offices (e.g. tickets.brampton.ca for The Rose). The
-    listing page embeds a `searchResults : [ [...], ... ]` JS array, 10-12
-    performances per page; `?BOset::WScontent::SearchResultsInfo::current_page=N`
-    pages through without a session token."""
-    base = src["url"].split("?")[0]
-    root = re.match(r"https?://[^/]+", base).group(0)
-    out, seen = [], set()
-    for page in range(1, int(src.get("max_pages") or 10) + 1):
-        url = base if page == 1 else base + "?BOset::WScontent::SearchResultsInfo::current_page=%d" % page
-        text = fetch_text(url)
-        rows = []
-        for m in re.finditer(r'^\s*(\[ "[0-9A-F-]{36}", "P", .*\])\s*,?\s*$', text, re.M):
-            raw = m.group(1).replace("\\'", "'")
-            try:
-                rows.append(json.loads(raw))
-            except ValueError:
-                continue
-        new = [r for r in rows if r[0] not in seen]
-        if not new:
-            break
-        for r in new:
-            seen.add(r[0])
-            try:
-                d = dt.date(int(r[11]), int(r[10]) + 1, int(r[9]))     # month is 0-based
-            except (ValueError, IndexError):
-                continue
-            hhmm = r[8] if re.match(r"^\d{1,2}:\d{2}$", r[8] or "") else "00:00"
-            venue = ""
-            if "Canada" in r:
-                c = r.index("Canada")
-                name = (r[c + 5] if len(r) > c + 5 else "") or ""
-                venue = ", ".join(x for x in [re.sub(r"\s+", " ", name).strip(), r[c - 4], r[c - 3]] if x)
-            elif len(r) > 31 and isinstance(r[30], str) and r[30]:     # "Venues Offsite"
-                venue = ", ".join(x for x in [r[30], r[31]] if isinstance(x, str) and x)
-            prices = [x for x in r if isinstance(x, str) and re.match(r"^\$\d", x)]
-            cost = "Free" if prices and all(re.match(r"^\$0(\.00)?$", x) for x in prices) else (
-                "From %s" % prices[0] if prices else "See website")
-            link = r[18] if len(r) > 18 else ""
-            out.append({
-                "source_id": src["id"], "source": src["name"],
-                "title": strip_html(r[6]),
-                "description": strip_html(" ".join(x for x in [r[5], r[2], r[17]] if isinstance(x, str)))[:400],
-                "start": "%s %s" % (d.isoformat(), hhmm), "end": "%s %s" % (d.isoformat(), hhmm),
-                "utc": False, "venue": venue or src.get("default_venue", ""), "cost": cost,
-                "url": urllib.parse.urljoin(base, link) if link else base,
-                "image": urllib.parse.urljoin(root + "/", r[20]) if len(r) > 20 and r[20] else None,
-            })
-        if out and dt.date.fromisoformat(out[-1]["start"][:10]) > end:
-            break
-    return out
+_JET_FIELD = re.compile(r'jet-listing-dynamic-field__content"\s*>([^<]*)</div>')
 
 
-def parse_imis_events(src, start, end):
-    """iMIS cloud 'Events_List.aspx' (e.g. PAMA): a RadGrid of
-    title link + 'When: Month D, YYYY' (+ optional 'Where:'). No times."""
-    text = fetch_text(src["url"])
+def _jet_section(html_doc, heading, next_headings):
+    """Slice the HTML between an Elementor <h2>/<h3> heading with this exact
+    text and whichever of `next_headings` comes first after it (or the end of
+    the doc), then pull every JetEngine dynamic-field value out of that slice.
+    Looking up the stable `jet-listing-dynamic-field__content` class instead
+    of the surrounding `elementor-element-<hash>` wrapper is what makes this
+    survive the hash regenerating every time CCI re-saves the page in the
+    editor (see the cci-ottawa notes in cities/ottawa.json)."""
+    m = re.search(r'>%s<' % re.escape(heading), html_doc)
+    if not m:
+        return []
+    rest = html_doc[m.end():]
+    cut = len(rest)
+    for nh in next_headings:
+        m2 = re.search(r'>%s<' % re.escape(nh), rest)
+        if m2:
+            cut = min(cut, m2.start())
+    return [v.strip().lstrip("-").strip() for v in _JET_FIELD.findall(rest[:cut])]
+
+
+def _jet_discover_links(src):
+    """Enumerate an Elementor+JetEngine 'events' custom post type's own
+    permalinks, for any site. Tries the plain WP REST route for the post type
+    first (`/wp-json/wp/v2/<rest_type>` off `src["home"]`, default rest_type
+    "events" - confirmed working as-is on both cciottawa.ca and
+    downtownkelowna.com, same custom-post-type-not-tribe pattern already
+    documented for carleton_events) since it's the most reliable: no feed
+    config to go wrong. Falls back to the archive's own `/feed/` RSS (what
+    this parser originally used) for a site where the CPT isn't REST-exposed
+    but the archive still emits one - NOTE this feed can be a trap: a site
+    that doesn't make the post type's own archive feed is default-enabled
+    will have WordPress silently serve the unrelated *comments* feed instead
+    (title literally "Comments on: Events") with zero items - harmless here
+    since zero links just means zero events, but worth knowing if this ever
+    returns suspiciously 0 on a site you can see real events on in a
+    browser."""
+    root = (src.get("home") or src["url"]).rstrip("/")
+    rest_type = src.get("rest_type", "events")
+    try:
+        posts = fetch(root + "/wp-json/wp/v2/%s?per_page=100" % rest_type)
+        links = [p["link"] for p in posts if p.get("link")]
+        if links:
+            return links
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError):
+        pass
+    try:
+        feed = fetch_text(src["url"].rstrip("/") + "/feed/",
+                          accept="application/rss+xml, application/xml, text/xml")
+    except (urllib.error.URLError, UnicodeDecodeError):
+        return []
+    return [html.unescape(u) for u in re.findall(r"<link>(.*?)</link>", feed)[1:]]
+
+
+def parse_downtown_kelowna_events(src, start, end):
+    """Downtown Kelowna BIA's 'events' CPT - same Elementor+JetEngine family
+    as `jet_events` but a different template: no Date:/Time:/Venue headings
+    to anchor on, just a flat ordered run of `jet-listing-dynamic-field__content`
+    values on each event's own page. A MULTI-day event gets 6 values
+    ([start_date, start_dow, end_date, end_dow, start_time, end_time]); a
+    single-day event gets only 4 ([date, dow, start_time, end_time]) with no
+    separate end-date field at all - 31 of this site's 40 events are the
+    4-value single-day shape (checked 2026-10-21), so treating 6 as the only
+    valid length silently dropped 78% of real events here. Dates are
+    'Mon D, YYYY' (not the full-month 'Month D, YYYY' cci-ottawa uses). No
+    venue or price field exists anywhere on these pages - this BIA page is a
+    generic downtown-entertainment listing (touring musicals etc., often
+    6-12 months out), not newcomer/student programming, so cost defaults to
+    'Ticketed' and needs the same `TICKETED_KINDS` MIN_SCORE exemption as
+    ottawa_tourism/ticketmaster or everything here scores zero on cost alone
+    despite being a real, major show worth knowing about."""
     out = []
-    for block in re.split(r'class="SearchResultSummary"', text)[1:]:
-        a = re.search(r'<a[^>]+href="([^"]*Event\.aspx\?EventKey=[^"]+)"[^>]*>\s*<span[^>]*>(.*?)</span>', block, re.S)
-        w = re.search(r"When:\s*</strong>\s*([A-Za-z]+ \d{1,2}, \d{4})(?:\s*-\s*([A-Za-z]+ \d{1,2}, \d{4}))?", block)
-        if not a or not w:
+    for link in _jet_discover_links(src):
+        try:
+            page = fetch_text(link)
+        except (urllib.error.URLError, UnicodeDecodeError):
+            continue
+        tm = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        if not tm:
+            continue
+        title = html.unescape(strip_html(tm.group(1)))
+        # The title itself is an <h1 class="jet-listing-dynamic-field__content">,
+        # not a <div> - _JET_FIELD (which requires a </div> close) skips it,
+        # so this list starts directly at the date fields, not the title.
+        vals = [v.strip() for v in _JET_FIELD.findall(page[page.find("<body"):])]
+        if len(vals) >= 6:
+            sd_raw, _, ed_raw, _, st_raw, et_raw = vals[:6]
+        elif len(vals) == 4:
+            sd_raw, _, st_raw, et_raw = vals[:4]
+            ed_raw = sd_raw
+        else:
             continue
         try:
-            sd = dt.datetime.strptime(w.group(1), "%B %d, %Y").date()
-            ed = dt.datetime.strptime(w.group(2), "%B %d, %Y").date() if w.group(2) else sd
+            sd = dt.datetime.strptime(sd_raw + " " + st_raw, "%b %d, %Y %I:%M %p")
+            ed = dt.datetime.strptime(ed_raw + " " + et_raw, "%b %d, %Y %I:%M %p")
         except ValueError:
             continue
-        where = re.search(r"Where:\s*</strong>\s*([^<]+)", block)
-        img = re.search(r'<img[^>]+src="([^"]+)"', block)
+        if not (start <= sd.date() <= end):
+            continue
         out.append({
             "source_id": src["id"], "source": src["name"],
-            "title": strip_html(a.group(2)), "description": "",
-            "start": sd.isoformat(), "end": ed.isoformat(), "utc": False,
-            "venue": src.get("default_venue") or (where.group(1).strip() if where else ""),
-            "cost": src.get("default_cost", "See website"),
-            "url": urllib.parse.urljoin(src["url"], html.unescape(a.group(1))),
-            "image": urllib.parse.urljoin(src["url"], html.unescape(img.group(1)).split("?")[0]) if img else None,
+            "title": title, "description": "",
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": ed.strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": src.get("default_venue", src["name"]),
+            "cost": "Ticketed", "url": link, "image": None,
         })
     return out
 
 
-_SXA_MON = {m: i for i, m in enumerate(
-    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+def parse_jet_events(src, start, end):
+    """WordPress + Elementor + JetEngine 'dynamic listing' events (the pattern
+    documented as a dead end for CCI Ottawa on 2026-09-09/09-10: per-element
+    classes are `elementor-element-<hash>` and regenerate every time the page
+    is re-saved, too fragile to scrape directly). Found 2026-10-21 while
+    testing a Firecrawl headless render against it: Firecrawl/Jina's rendered
+    markdown wasn't actually doing anything a plain stdlib GET couldn't -
+    this org's events ARE server-rendered - the real fix is reading the
+    stable `jet-listing-dynamic-field__content` class JetEngine always wraps
+    the actual value in, regardless of the hash, plus the plain WordPress
+    `/feed/` RSS the events archive exposes for free to enumerate event
+    permalinks (WordPress default: last 10 posts/events, by publish date -
+    covers this org's ~monthly batch-of-4 publishing cadence with room to
+    spare; may miss an event published far ahead of a 10-item window on a
+    busier site).
 
-
-def _sxa_date(s):
-    m = re.match(r"([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),\s*(\d{4})", s.strip())
-    return dt.date(int(m.group(3)), _SXA_MON[m.group(1).lower()], int(m.group(2))) if m else None
-
-
-def _sxa_time(s):
-    m = re.match(r"(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?", s.strip(), re.I)
-    if not m:
-        return None
-    h = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "p" else 0)
-    return "%02d:%s" % (h, m.group(2) or "00")
-
-
-def parse_sitecore_sxa(src, start, end):
-    """Sitecore SXA search results JSON (e.g. Sheridan College /events):
-    {"Results":[{"Url":..., "Html":"<h3 class=field-eventname>..."}]}."""
-    data = fetch(src["url"])
-    root = re.match(r"https?://[^/]+", src["url"]).group(0)
+    `src["url"]` is the events archive (e.g. 'https://cciottawa.ca/events/');
+    `/feed/` is appended to it for discovery, then each entry's own page is
+    fetched for the real date/time/venue. One request per event found, so
+    keep this off very high-volume calendars."""
+    links = _jet_discover_links(src)
     out = []
-    for r in data.get("Results", []):
-        h = r.get("Html") or ""
-        a = re.search(r'field-eventname[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', h, re.S)
-        if not a:
-            continue
-        date_block = re.search(r"search-result-event__date(.*?)</h4>", h, re.S)
-        dates = [x for x in (_sxa_date(strip_html(s)) for s in
-                             re.findall(r"<span>([^<]*\d{4})</span>", date_block.group(1) if date_block else ""))
-                 if x]
-        if not dates:
-            continue
-        times = [x for x in (_sxa_time(strip_html(s)) for s in
-                             re.findall(r"<span>([^<]*[ap]\.m\.)</span>", h)) if x]
-        loc = re.search(r"search-result-event__location[^>]*>(.*?)</span></p>", h, re.S)
-        venue = strip_html(loc.group(1)).replace("Location:", "").strip() if loc else ""
-        sd, ed = dates[0], dates[-1]
-        # A long-running "Jun - Oct" series: show it from today rather than drop it.
-        if sd < start <= ed:
-            sd = start
-        t1 = times[0] if times else "00:00"
-        t2 = times[1] if len(times) > 1 else t1
-        out.append({
-            "source_id": src["id"], "source": src["name"],
-            "title": strip_html(a.group(2)), "description": "",
-            "start": "%s %s" % (sd.isoformat(), t1), "end": "%s %s" % (ed.isoformat(), t2),
-            "utc": False, "venue": venue or src.get("default_venue", ""),
-            "cost": src.get("default_cost", "Free"),
-            "url": urllib.parse.urljoin(root + "/", a.group(1)), "image": None,
-        })
-    return out
-
-
-
-def parse_drupal_fullcalendar(src, start, end):
-    """Drupal 'FullCalendar View' pages (e.g. QUIC at Queen's): every event is
-    embedded in the page's drupal-settings-json as
-    fullCalendarView[n].calendar_options (a JSON string) -> events[]."""
-    text = fetch_text(src["url"])
-    m = re.search(r'<script type="application/json" data-drupal-selector="drupal-settings-json">(.*?)</script>',
-                  text, re.S)
-    if not m:
-        raise ValueError("no drupal-settings-json on page")
-    settings = json.loads(m.group(1))
-    views = settings.get("fullCalendarView") or []
-    if isinstance(views, dict):
-        views = list(views.values())
-    out, seen = [], set()
-    for v in views:
-        opts = v.get("calendar_options") or {}
-        if isinstance(opts, str):
-            opts = json.loads(opts)
-        for e in opts.get("events") or []:
-            s = (e.get("start") or "")[:16].replace("T", " ")
-            if not s:
-                continue
-            title = strip_html(e.get("title"))
-            key = (title.lower(), s)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({
-                "source_id": src["id"], "source": src["name"],
-                "title": title, "description": "",
-                "start": s, "end": (e.get("end") or e["start"])[:16].replace("T", " "),
-                "utc": False, "venue": src.get("default_venue", ""),
-                "cost": src.get("default_cost", "Free"),
-                "url": urllib.parse.urljoin(src["url"], e.get("url") or ""), "image": None,
-            })
-    return out
-
-
-_MONTHS = {m: i for i, m in enumerate(
-    ["january", "february", "march", "april", "may", "june", "july", "august",
-     "september", "october", "november", "december"], 1)}
-
-
-def _vk_dates(text, fallback_start):
-    """'October 22 - November 8, 2026 • 7:30 pm' / 'October 1 - 31, 2026' /
-    'October 20, 2026 • 4:30 pm' -> (start_date, end_date, 'HH:MM'|None)."""
-    when, _, tm = text.partition("•")
-    m = re.match(r"\s*([A-Za-z]+)\s+(\d{1,2})(?:\s*-\s*(?:([A-Za-z]+)\s+)?(\d{1,2}))?,\s*(\d{4})", when)
-    sd = ed = None
-    if m:
-        mon1, d1, mon2, d2, y = m.groups()
-        y = int(y)
+    for link in links:
         try:
-            sd = dt.date(y, _MONTHS[mon1.lower()], int(d1))
-            ed = dt.date(y, _MONTHS[(mon2 or mon1).lower()], int(d2)) if d2 else sd
-            if ed < sd:                      # "December 28 - January 3, 2027"
-                sd = sd.replace(year=y - 1)
-        except (KeyError, ValueError):
-            sd = ed = None
-    sd = sd or fallback_start
-    ed = ed or sd
-    hhmm = _sxa_time(tm) if tm.strip() else None
-    return sd, ed, hhmm
+            page = fetch_text(link)
+        except (urllib.error.URLError, UnicodeDecodeError):
+            continue
+        tm = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        if not tm:
+            continue
+        title = html.unescape(strip_html(tm.group(1)))
 
+        dates = _jet_section(page, "Date:", ("Time:",))
+        times = _jet_section(page, "Time:", ("Event Category:", "Venue"))
+        if not dates or not times:
+            continue
+        sd_raw, ed_raw = dates[0], dates[-1]
+        st_raw, et_raw = times[0], times[-1]
+        try:
+            sd = dt.datetime.strptime(sd_raw + " " + st_raw, "%B %d, %Y %I:%M %p")
+            ed = dt.datetime.strptime(ed_raw + " " + et_raw, "%B %d, %Y %I:%M %p")
+        except ValueError:
+            continue
+        if not (start <= sd.date() <= end):
+            continue
 
-def parse_visit_kingston(src, start, end):
-    """Visit Kingston (Craft CMS): the events page fetches its listing from
-    POST /ajax/event-results with a CSRF token from the page, returning HTML
-    cards. Only the 'Special events' section is used - 'Recurring events'
-    carry no dates and 'Top attractions' aren't events."""
-    page_url = src.get("home") or "https://www.visitkingston.ca/events/"
-    jar = urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
-    opener = urllib.request.build_opener(jar)
-    hdr = {"User-Agent": UA, "Accept-Language": "en-CA,en;q=0.9"}
-    with opener.open(urllib.request.Request(page_url, headers=hdr), timeout=30) as r:
-        page = r.read().decode("utf-8", "replace")
-    name = re.search(r'window\.csrfTokenName\s*=\s*"([^"]+)"', page)
-    value = re.search(r'window\.csrfTokenValue\s*=\s*"((?:[^"\\]|\\.)*)"', page)
-    if not (name and value):
-        raise ValueError("no CSRF token on events page")
-    body = {"fromDate": start.isoformat(), "toDate": end.isoformat(), "category": "all",
-            "search": "", "language": "en", name.group(1): json.loads('"%s"' % value.group(1))}
-    req = urllib.request.Request(src["url"], data=json.dumps(body).encode(), method="POST",
-                                 headers=dict(hdr, **{"Content-Type": "application/json",
-                                                      "Accept": "application/json",
-                                                      "Referer": page_url}))
-    with opener.open(req, timeout=40) as r:
-        data = json.loads(r.read().decode("utf-8", "replace"))
-    results = (data.get("data") or {}).get("results") or ""
-    sections = re.split(r"<h2\b[^>]*>", results)
-    special = "".join(s for s in sections if re.match(r"\s*Special events", s, re.I)) or results
-    out, seen = [], set()
-    for href, card in re.findall(r'<a class="group[^"]*"\s+href="([^"]+)"[^>]*>(.*?)</a>', special, re.S):
-        title_m = re.search(r'<p class="typo-h4[^"]*"[^>]*>(.*?)</p>', card, re.S)
-        if not title_m:
-            continue
-        title = strip_html(title_m.group(1))
-        tattr = re.search(r'<time datetime="(\d{4}-\d{2}-\d{2})"', card)
-        fallback = dt.date.fromisoformat(tattr.group(1)) if tattr else None
-        info = re.search(r'<p class="font-body[^"]*"[^>]*>(.*?)</p>', card, re.S)
-        parts = re.split(r"<br\s*/?>", info.group(1)) if info else [""]
-        sd, ed, hhmm = _vk_dates(strip_html(parts[0]), fallback)
-        if not sd:
-            continue
-        if sd < start <= ed:
-            sd = start
-        key = (title.lower(), sd)
-        if key in seen:
-            continue
-        seen.add(key)
-        cat = re.search(r'typo-smallcaps[^>]*>(.*?)</p>', card, re.S)
-        img = re.search(r'<img[^>]+src="([^"]+)"', card)
-        t = hhmm or "00:00"
+        room_m = re.search(r">Venue<.*?<h3[^>]*>([^<]*)</h3>", page, re.S)
+        addr = _jet_section(page, "Venue", ("Organizer", "Share:"))
+        venue = ", ".join(x for x in [
+            html.unescape(room_m.group(1)).strip() if room_m else None,
+            addr[-1] if addr else None,
+        ] if x) or src.get("default_venue", src["name"])
+
+        desc_chunk = page[tm.end():page.find(">Event Details<")]
+        # A handful of CCI's own posts have a typo'd AM start time for what
+        # is obviously a daytime workshop (e.g. "3:00 AM - 4:30 PM") - surface
+        # it rather than silently "fixing" it, since only the org can confirm
+        # which side of the typo is wrong.
+        verify = ("Site's own page lists a %s start for this event - "
+                  "confirm before drafting, may be a typo." % st_raw) \
+                 if sd.hour < 6 else None
         out.append({
             "source_id": src["id"], "source": src["name"],
-            "title": title, "description": strip_html(cat.group(1)) if cat else "",
-            "start": "%s %s" % (sd.isoformat(), t), "end": "%s %s" % (ed.isoformat(), t),
-            "utc": False, "venue": strip_html(parts[1]) if len(parts) > 1 else "",
-            "cost": "See website", "url": html.unescape(href),
-            "image": html.unescape(img.group(1)) if img else None,
+            "title": title,
+            "description": strip_html(desc_chunk)[:400],
+            "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+            "end": ed.strftime("%Y-%m-%d %H:%M:%S"),
+            "utc": False, "venue": venue,
+            "cost": src.get("default_cost", "Free"),
+            "url": link, "image": None, "verify": verify,
         })
     return out
 
@@ -1611,9 +1610,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "bibliocommons": parse_bibliocommons, "okanagan_events": parse_okanagan_events,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
-           "supabase_events": parse_supabase_events, "audienceview": parse_audienceview,
-           "imis_events": parse_imis_events, "sitecore_sxa": parse_sitecore_sxa,
-           "drupal_fullcalendar": parse_drupal_fullcalendar, "visit_kingston": parse_visit_kingston}
+           "supabase_events": parse_supabase_events, "jet_events": parse_jet_events,
+           "downtown_kelowna_events": parse_downtown_kelowna_events}
 
 
 # ---------------------------------------------------------------- assembly
@@ -1651,11 +1649,7 @@ def collect(sources, start, end, log):
                 continue
         else:
             try:
-                # Hand-typed dates keyed to a crawled source (e.g. a welcome
-                # week the feed doesn't carry) ride along with the feed.
-                raw = list(parser(src, start, end))
-                if src.get("kind") != "manual":
-                    raw += _manual_events_for(src, start, end)
+                raw = parser(src, start, end)
             except urllib.error.HTTPError as e:
                 status[src["id"]] = ("blocked", "HTTP %s" % e.code)
                 log("  %-34s BLOCKED (HTTP %s)" % (src["name"], e.code))
@@ -1666,18 +1660,7 @@ def collect(sources, start, end, log):
                 continue
 
         kept = 0
-        # Optional per-source venue regex: lets a region-wide feed (e.g. an
-        # agency serving all of Peel/Halton/Toronto) contribute only what is
-        # in this city, plus anything online.
-        vf = re.compile(src["venue_filter"], re.I) if src.get("venue_filter") else None
-        # Optional per-source title regex to drop standing one-to-one services
-        # (e.g. daily "Drop-in Advising") that would otherwise flood the board.
-        tx = re.compile(src["title_exclude"], re.I) if src.get("title_exclude") else None
         for e in raw:
-            if vf and not vf.search(e["title"] if e.get("no_venue") else (e.get("venue") or "")):
-                continue
-            if tx and tx.search(e.get("title") or ""):
-                continue
             sd = to_dt(e["start"], e.get("utc"))
             ed = to_dt(e["end"], e.get("utc")) or sd
             if not sd or not (start <= sd.date() <= end):
@@ -1686,15 +1669,10 @@ def collect(sources, start, end, log):
                 e["title"], e.get("description", ""), src.get("default_category", "practical"))
             e.update({
                 "sd": sd, "ed": ed, "category": cat, "source_kind": src.get("kind"),
-                # Ticketed feeds, plus any source flagged "capped" (e.g. a museum
-                # whose list has no prices), skip MIN_SCORE but share the
-                # best-5-per-4-weeks cap below.
-                "capped_feed": src.get("kind") in TICKETED_KINDS
-                               or bool(src.get("capped", src.get("kind") in CAPPED_BY_DEFAULT)),
                 "image": e.get("image") or src.get("image"),
             })
             e["score"] = score(e)
-            if src.get("kind") == "manual" or e.get("hand_entered"):
+            if src.get("kind") == "manual":
                 # A human already vetted these, so keyword scoring doesn't get a
                 # veto — Nuit Blanche reads as "art", not "newcomer", and would
                 # otherwise be dropped despite being one of the best free nights
@@ -1704,7 +1682,7 @@ def collect(sources, start, end, log):
             # but students still go to paid concerts/festivals - they're capped
             # to the best few per rolling 4-week window below instead of being
             # vetted out here.
-            if e["score"] < MIN_SCORE and not e["capped_feed"]:
+            if e["score"] < MIN_SCORE and src.get("kind") not in TICKETED_KINDS:
                 continue
             events.append(e)
             kept += 1
@@ -1748,7 +1726,7 @@ def collect(sources, start, end, log):
     # practical/social feed.
     tm_buckets = {}
     for e in capped:
-        if not e.get("capped_feed"):
+        if e.get("source_kind") not in TICKETED_KINDS:
             continue
         idx = (e["sd"].date() - start).days // 28
         tm_buckets.setdefault(idx, []).append(e)
@@ -1757,7 +1735,7 @@ def collect(sources, start, end, log):
         lst.sort(key=lambda x: -x["score"])
         tm_keep.update(id(e) for e in lst[:5])
     capped = [e for e in capped
-              if not e.get("capped_feed") or id(e) in tm_keep]
+              if e.get("source_kind") not in TICKETED_KINDS or id(e) in tm_keep]
 
     capped.sort(key=lambda x: x["sd"])
     return capped, status
@@ -1787,8 +1765,13 @@ def payload(events, sources, status, keys, top, start, end):
             "month": e["sd"].strftime("%Y-%m"),
             "day": e["sd"].day,
             "dow": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][e["sd"].weekday()],
-            "time": e["sd"].strftime("%H:%M") + (
-                "–" + e["ed"].strftime("%H:%M") if e["ed"] and e["ed"] != e["sd"] else ""),
+            # Midnight with no end time means the source only gave a date
+            # (Ottawa Tourism cards, some church calendars) - showing "00:00"
+            # reads as a midnight event, so leave the time blank instead.
+            "time": ("" if (e["sd"].hour == 0 and e["sd"].minute == 0
+                            and (not e["ed"] or e["ed"] == e["sd"]))
+                     else e["sd"].strftime("%H:%M") + (
+                "–" + e["ed"].strftime("%H:%M") if e["ed"] and e["ed"] != e["sd"] else "")),
             "title": e["title"],
             "wixTitle": wix_title(e),
             "venue": e["venue"], "cost": e["cost"], "source": e["source"],
@@ -1796,10 +1779,6 @@ def payload(events, sources, status, keys, top, start, end):
             "live": bool(e.get("already_live")),
             "verify": e.get("verify"),
             "image": e.get("image") or "wix:" + CITY["default_images"][e["category"]],
-            # where the picture came from: feed | event-page | web-search |
-            # organizer | default - and, for openly licensed finds, the credit
-            "imageSource": e.get("image_source") or ("feed" if e.get("image") else "default"),
-            "imageCredit": e.get("image_credit"),
             # base can be null for a city whose base category doesn't exist yet
             "wixCategoryIds": [c for c in (CITY["wix"][e["category"]], CITY["wix"].get("base")) if c],
         }
@@ -1838,8 +1817,6 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--json", default=None)
     ap.add_argument("--quiet", action="store_true")
-    ap.add_argument("--no-images", action="store_true",
-                    help="skip the picture search (offline / quick runs)")
     a = ap.parse_args()
 
     try:                                  # Windows consoles default to cp1252
@@ -1878,19 +1855,7 @@ def main():
     events, status = collect(sources, start, end, log)
     log("  %s\n  %d events kept after de-dupe" % ("-" * 46, len(events)))
 
-    picture_report = None
-    # Most feeds carry no picture; look one up (event page -> openly licensed
-    # web search -> organizer site) before falling back to the category art.
-    if not a.no_images:
-        try:
-            from image_finder import fill_images
-            picture_report = fill_images(events, sources, CITY["city"], log)
-        except Exception as ex:                   # noqa: BLE001 - pictures never break a build
-            log("  pictures: skipped (%s)" % type(ex).__name__)
-
     data = payload(events, sources, status, keys, a.top, start, end)
-    if picture_report:
-        data["pictureReport"] = picture_report     # coverage + search health, for checking
 
     if a.json:
         with open(a.json, "w", encoding="utf-8") as f:
