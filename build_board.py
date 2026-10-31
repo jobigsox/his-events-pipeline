@@ -1517,6 +1517,61 @@ def parse_jet_events(src, start, end):
     return out
 
 
+def parse_hamilton_city_events(src, start, end):
+    """City of Hamilton's own events calendar (hamilton.ca) - Drupal Views
+    teaser markup, two template variants seen (a 'featured' one with a
+    separate image block + 'event--actions' links, and a plain 'teaser' one
+    whose whole card is one <a href>), but both share the same inner
+    event--location/event--title/event--date classes, so this splits on the
+    repeating `<div class="views-row">` wrapper and reads those three
+    fields plus the first href in each block - works for either template.
+    `<time datetime="ISO">` gives real start/end instants directly, no date
+    parsing needed. Paginated `?page=N`; stop once a page has no rows (the
+    first several items are 'sticky'/promoted and repeat across early
+    pages - harmless, the pipeline's own url+date dedup collapses repeats).
+    No cost is shown anywhere in this markup; City of Hamilton civic/
+    community listings (ceremonies, BIA markets, park programming) skew
+    free, so this defaults to 'Free' rather than leaving cost blank."""
+    out, seen_hrefs = [], set()
+    for page_no in range(10):
+        sep = "&" if "?" in src["url"] else "?"
+        page = fetch_text(src["url"] + sep + "page=%d" % page_no)
+        rows = page.split('<div class="views-row">')[1:]
+        if not rows:
+            break
+        for chunk in rows:
+            tm = re.search(r'event--title">([^<]*)<', chunk)
+            lm = re.search(r'event--location">([^<]*)<', chunk)
+            times = re.findall(r'<time datetime="([^"]+)"', chunk)
+            hm = re.search(r'href="([^"]+)"', chunk)
+            if not tm or not times or not hm:
+                continue
+            href = hm.group(1)
+            if href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
+            sd_raw, ed_raw = times[0], (times[1] if len(times) > 1 else times[0])
+            try:
+                sd = dt.datetime.fromisoformat(sd_raw)
+                ed = dt.datetime.fromisoformat(ed_raw)
+            except ValueError:
+                continue
+            if not (start <= sd.date() <= end):
+                continue
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": html.unescape(strip_html(tm.group(1))),
+                "description": "",
+                "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
+                "end": ed.strftime("%Y-%m-%d %H:%M:%S"),
+                "utc": False,
+                "venue": html.unescape(strip_html(lm.group(1))) if lm else src.get("default_venue", src["name"]),
+                "cost": src.get("default_cost", "Free"),
+                "url": urllib.parse.urljoin(src["home"], href), "image": None,
+            })
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -1529,7 +1584,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "govstack_calendar": parse_govstack_calendar, "sqs_rss": parse_sqs_rss,
            "timely": parse_timely, "campuslabs_engage": parse_campuslabs_engage,
            "supabase_events": parse_supabase_events, "jet_events": parse_jet_events,
-           "downtown_kelowna_events": parse_downtown_kelowna_events}
+           "downtown_kelowna_events": parse_downtown_kelowna_events,
+           "hamilton_city_events": parse_hamilton_city_events}
 
 
 # ---------------------------------------------------------------- assembly
