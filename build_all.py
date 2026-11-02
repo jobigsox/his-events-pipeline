@@ -84,7 +84,14 @@ def main():
         if only_city not in all_slugs:
             sys.exit("--only-city %r has no cities/%s.json" % (only_city, only_city))
 
-    slugs = [only_city] if only_city else all_slugs
+    # Rotate the starting city each week. Rate-limited lookups (the picture
+    # search) run out partway through a crawl, and plain A-Z order meant the
+    # same late-alphabet cities always got nothing. The index stays A-Z.
+    if only_city:
+        slugs = [only_city]
+    else:
+        k = dt.date.today().isocalendar()[1] % len(all_slugs)
+        slugs = all_slugs[k:] + all_slugs[:k]
     passthrough = args or ["--months", "3"]
     failed = []
 
