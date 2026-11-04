@@ -131,7 +131,11 @@ def push_sources():
     for slug, path in city_files():
         with open(path, encoding="utf-8") as f:
             cfg = json.load(f)
-        body = {"sources": cfg.get("sources") or [], "manual_events": cfg.get("manual_events") or []}
+        body = {"sources": cfg.get("sources") or [], "manual_events": cfg.get("manual_events") or [],
+                # Lets the console create a city it doesn't have yet (create-only;
+                # an existing city's settings are never overwritten).
+                "city": {k: cfg[k] for k in ("city", "timezone", "wix", "default_images",
+                                             "central_venue_words") if k in cfg}}
         try:
             res = call("POST", "/api/cities/%s/sources/sync" % slug, body, timeout=120)
         except urllib.error.HTTPError as e:
@@ -144,6 +148,8 @@ def push_sources():
         added = res.get("addedSources") or []
         kept = res.get("skippedRemoved") or []
         upgraded = res.get("upgradedSources") or []
+        if res.get("cityCreated"):
+            print("::notice::%s: city created in the console from cities/%s.json" % (slug, slug))
         print("  pushed %s: +%d sources%s, +%d manual events%s%s"
               % (slug, len(added), (" (%s)" % ", ".join(added)) if added else "",
                  res.get("addedEvents", 0),
