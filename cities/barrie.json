@@ -46,16 +46,16 @@
       "home": "https://downtownbarrie.ca/", "default_category": "social",
       "tz": "local", "enabled": true, "image": null,
       "notes": "WordPress site listing the Barrie Farmers' Market and downtown events, but /wp-json/tribe/events/v1/events returns rest_no_route - checked 2026-11-04. Farmers' Market (Saturdays 9am-1pm, City Hall) is already on the HIS Barrie page." },
-    { "id": "tourism-barrie", "name": "Tourism Barrie - Festivals & Events", "kind": "probe",
-      "url": "https://www.tourismbarrie.com/festivals-events",
-      "home": "https://www.tourismbarrie.com/", "default_category": "social",
-      "tz": "local", "enabled": true, "image": null,
-      "notes": "Sitefinity calendar (/festivals-events/details/YYYY/MM/DD/default-calendar/<slug>) carrying the big city festivals (Barrie Film Festival, Locallicious, Hello Winter, Downtown Countdown). No parser for Sitefinity yet." },
+    { "id": "tourism-barrie", "name": "Tourism Barrie - Festivals & Events", "kind": "tourism_barrie",
+      "url": "https://www.tourismbarrie.com/Handlers/GetEvents.ashx",
+      "home": "https://www.tourismbarrie.com/festivals-events", "default_category": "social",
+      "tz": "local", "enabled": true, "image": null, "default_venue": "Barrie",
+      "notes": "Sitefinity site; the events page's 'Load more' calls /Handlers/GetEvents.ashx (JSON, 12 cards/page: Title, Date range, ImageUrl, DetailsPageUrl). No time/venue/price, so cost defaults to Paid and the source is treated as ticketed like other tourism feeds. Youth tournaments in sports-calendar are skipped. Carries the big city festivals (Barrie Film Festival, Locallicious, Hello Winter, Downtown Countdown). Found 2026-11-05." },
     { "id": "simcoe-immigration", "name": "Simcoe County Immigration - Settlement Services", "kind": "probe",
       "url": "https://immigration.simcoe.ca/belonging/settlement-services/",
       "home": "https://immigration.simcoe.ca/", "default_category": "practical",
       "tz": "local", "enabled": true, "image": null,
-      "notes": "County newcomer portal, linked from the HIS Barrie page. Runs Week of Welcome each September (job fairs, citizenship ceremony). No tribe route (rest_no_route) - checked 2026-11-04." }
+      "notes": "County newcomer portal, linked from the HIS Barrie page. Runs Week of Welcome each September (job fairs, citizenship ceremony). No tribe route (rest_no_route) - checked 2026-11-04. Site uses EventON (wp/v2/ajde_events) but the newest event post is from Sept 2024 and the REST API exposes no dates; homepage shows 'No Events' - checked 2026-11-05. Not worth a parser until they post again; Week of Welcome (September) can be hand-entered." }
   ],
   "manual_events": []
 }

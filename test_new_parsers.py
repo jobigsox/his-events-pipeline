@@ -228,6 +228,43 @@ class Parsers(unittest.TestCase):
         self.assertEqual(by["Spirit Week - Barrie"]["start"], "2026-10-20 11:00")   # clipped to window
         self.assertEqual(by["Money Map webinar on Zoom"]["venue"], "Online")
 
+    def test_tourism_barrie(self):
+        card = lambda t, d, cal, slug, img="/images/x.tmb-eventslist.jpg?Culture=en&sfvrsn=1": {
+            "Title": t, "Date": d, "Summary": "", "ImageUrl": img, "ImageAlt": "",
+            "DetailsPageUrl": "https://www.tourismbarrie.com/festivals-events/details/%s/%s/%s" % (
+                "2026/11/06", cal, slug)}
+        page1 = [card("Barrie Christmas Arts &amp; Crafts Show", "Nov 6 - Nov 8, 2026", "default-calendar", "crafts"),
+                 card("Sharkfest 2026", "Nov 13 - Nov 15, 2026", "sports-calendar", "sharkfest"),
+                 card("Barrie Colts vs Sudbury Wolves", "Nov 4 - Nov 4, 2026", "major-sports-calendar", "colts")]
+        page1 += [card("Filler %d" % i, "Nov 20 - Nov 20, 2026", "default-calendar", "f%d" % i) for i in range(9)]
+        page2 = [card("Downtown Countdown", "Dec 31 - Jan 1, 2027", "default-calendar", "countdown", img=""),
+                 card("Hello Winter", "Feb 6 - Feb 7, 2027", "default-calendar", "hello-winter")]
+        calls = []
+
+        def fake(url, *a, **k):
+            calls.append(url)
+            return {"Categories": [], "Events": page1 if "pg=1&" in url else page2}
+        B.fetch = fake
+        B.CITY = {"city": "Barrie", "manual_events": []}
+        out = B.parse_tourism_barrie({"id": "tb", "name": "Tourism Barrie",
+                                      "url": "https://www.tourismbarrie.com/Handlers/GetEvents.ashx"},
+                                     START, END)
+        by = {e["title"]: e for e in out}
+        self.assertEqual(len(calls), 2, "stops after a short page")
+        self.assertIn("from=2026-10-20", calls[0])
+        self.assertNotIn("Sharkfest 2026", by)
+        self.assertNotIn("Hello Winter", by)                          # after END
+        crafts = by["Barrie Christmas Arts & Crafts Show"]
+        self.assertEqual((crafts["start"], crafts["end"]), ("2026-11-06", "2026-11-08"))
+        self.assertEqual(crafts["cost"], "Paid")
+        self.assertEqual(crafts["image"], "https://www.tourismbarrie.com/images/x.tmb-eventslist.jpg?Culture=en&sfvrsn=1")
+        self.assertEqual(by["Barrie Colts vs Sudbury Wolves"]["start"], "2026-11-04")
+        cd = by["Downtown Countdown"]
+        self.assertEqual((cd["start"], cd["end"]), ("2026-12-31", "2027-01-01"))
+        self.assertIsNone(cd["image"])
+        self.assertEqual(B._range_dates("Dec 28 - Jan 3, 2027"), (dt.date(2026, 12, 28), dt.date(2027, 1, 3)))
+        self.assertEqual(B._range_dates("Nov 14, 2026"), (dt.date(2026, 11, 14), dt.date(2026, 11, 14)))
+
     def test_visit_kingston(self):
         sent = {}
 

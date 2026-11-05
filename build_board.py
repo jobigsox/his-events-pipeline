@@ -49,7 +49,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
 TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview", "visit_kingston",
-                  "downtown_kelowna_events"}
+                  "downtown_kelowna_events", "tourism_barrie"}
 # Feeds whose listings never carry a price, so the cost part of `score` can't
 # judge them: capped like ticketed feeds unless a source sets "capped": false.
 CAPPED_BY_DEFAULT = {"imis_events"}
@@ -2005,6 +2005,72 @@ def parse_georgian_events(src, start, end):
     return out
 
 
+_MON3 = {m[:3]: i for m, i in _MONTHS.items()}
+
+
+def _range_dates(text):
+    """'Nov 6 - Nov 8, 2026' / 'Dec 28 - Jan 3, 2027' / 'Nov 14, 2026' -> (start, end)."""
+    m = re.match(r"\s*([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:\s*-\s*(?:([A-Za-z]{3})[a-z]*\.?\s+)?(\d{1,2}))?,\s*(\d{4})",
+                 text or "")
+    if not m:
+        return None, None
+    mon1, d1, mon2, d2, y = m.groups()
+    y = int(y)
+    try:
+        ed = dt.date(y, _MON3[(mon2 or mon1).lower()], int(d2 or d1))
+        sd = dt.date(y, _MON3[mon1.lower()], int(d1))
+    except (KeyError, ValueError):
+        return None, None
+    if sd > ed:                                   # range crosses New Year
+        sd = sd.replace(year=y - 1)
+    return sd, ed
+
+
+def parse_tourism_barrie(src, start, end):
+    """Tourism Barrie (Sitefinity). The festivals-events page's 'Load more'
+    calls /Handlers/GetEvents.ashx, which returns 12 cards a page as JSON:
+    Title, Date ('Nov 6 - Nov 8, 2026'), ImageUrl, DetailsPageUrl. No time,
+    venue or price - events land on their date, cost defaults to 'Paid' like
+    the other tourism aggregators. The details URL carries the calendar
+    (/details/YYYY/MM/DD/<calendar>/<slug>); youth tournaments live in
+    'sports-calendar' and are skipped unless exclude_calendars says otherwise."""
+    base = src["url"]
+    skip_cals = set(src.get("exclude_calendars", ["sports-calendar"]))
+    out, seen = [], set()
+    for pg in range(1, int(src.get("max_pages") or 15) + 1):
+        q = urllib.parse.urlencode({
+            "includeAllCategories": "false", "pg": pg, "calendars": "", "categories": "[]",
+            "from": start.isoformat(), "to": end.isoformat(), "keywords": "", "registration": "false",
+        })
+        data = fetch(base + ("&" if "?" in base else "?") + q)
+        rows = (data or {}).get("Events") or []
+        for e in rows:
+            link = e.get("DetailsPageUrl") or ""
+            cal = re.search(r"/details/\d{4}/\d{2}/\d{2}/([^/]+)/", link)
+            if cal and cal.group(1) in skip_cals:
+                continue
+            sd, ed = _range_dates(e.get("Date"))
+            if not sd or sd > end or ed < start:
+                continue
+            title = strip_html(e.get("Title"))
+            if (title.lower(), sd) in seen:
+                continue
+            seen.add((title.lower(), sd))
+            img = e.get("ImageUrl")
+            out.append({
+                "source_id": src["id"], "source": src["name"],
+                "title": title, "description": strip_html(e.get("Summary"))[:400],
+                "start": max(sd, start).isoformat(), "end": ed.isoformat(), "utc": False,
+                "venue": src.get("default_venue", CITY.get("city", "")),
+                "cost": src.get("default_cost", "Paid"),
+                "url": link,
+                "image": urllib.parse.urljoin(base, img) if img else None,
+            })
+        if len(rows) < 12:
+            break
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -2021,7 +2087,7 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "drupal_fullcalendar": parse_drupal_fullcalendar, "visit_kingston": parse_visit_kingston,
            "jet_events": parse_jet_events, "downtown_kelowna_events": parse_downtown_kelowna_events,
            "hamilton_city_events": parse_hamilton_city_events,
-           "georgian_events": parse_georgian_events}
+           "georgian_events": parse_georgian_events, "tourism_barrie": parse_tourism_barrie}
 
 
 # ---------------------------------------------------------------- assembly
