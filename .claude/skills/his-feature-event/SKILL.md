@@ -45,6 +45,8 @@ Use the HIS Wix connector (`CallWixSiteAPI` / `ExecuteWixAPI`, siteId above).
    |---|---|---|
    | Barrie | `comp-mp1n1l8n` | `0d74464c-efc9-4c42-9491-378e3cb5a61c` |
    | Hamilton | `comp-mg5c6kup` | `4979417c-492c-4027-bdc1-a32c009cb255` |
+| Kelowna | `comp-miyuqrb03` | `85da808f-3c1d-4bc3-b615-13d72c246836` |
+| Halifax | *(none: page has no "Event hosted by HIS" section as of 2026-11-05)* | |
 
 3. **Get the widget's category id** (if not in the table):
    `POST https://www.wixapis.com/events/v1/categories/query`
@@ -77,6 +79,12 @@ To remove an event later:
 5. **Publish** (top right). Editor changes are not live until published.
 
 ## Gotchas
+
+- **Some city pages have no HIS section** (Halifax, as of 2026-11-05: it goes
+  straight to Social / Practical / Spiritual). There is nothing to add to via the
+  API; the section must first be added in the Editor (copy the "Upcoming Events
+  / Event hosted by HIS" strip from another city page, set its widget to Custom),
+  then either route works.
 
 - **Recurring events list several dates.** The Friendship Families wait list has
   occurrences on e.g. Oct 8 2026, Dec 22 2026 and Mar 25 2027, each with its own
