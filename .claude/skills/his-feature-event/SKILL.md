@@ -80,6 +80,10 @@ To remove an event later:
 
 ## Gotchas
 
+- The Social / Practical / Spiritual lists below the HIS box are a different
+  mechanism (Wix categories per city). If those are empty, use the
+  `his-fix-city-lists` skill.
+
 - **Some city pages have no HIS section** (Halifax, as of 2026-11-05: it goes
   straight to Social / Practical / Spiritual). There is nothing to add to via the
   API; the section must first be added in the Editor (copy the "Upcoming Events
