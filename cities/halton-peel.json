@@ -6,12 +6,12 @@
   "wix": {
     "site_id": "a8184ab6-cb25-4a52-8c23-1eb37f03bc6b",
     "base": null,
-    "social": null,
-    "practical": null,
-    "spiritual": null,
+    "social": "18bf74df-ac36-44a6-9dc8-e00c39b230fb",
+    "practical": "617d6110-e81c-4d4f-bfa3-1a8d042f01c9",
+    "spiritual": "2fea3459-c8bc-444e-91b1-5ba18b12d569",
     "never_use": {}
   },
-  "_wix_note": "Category IDs are pending, not missing by oversight. The Wix Events app on this site enforces a hard 100-category cap and the site already carries 122 real categories (down from 181 after a 2026-09-09 cleanup) - no new category can be created until more room is freed. Board building and curation work fine with null category IDs; only the his-event-drafter Wix-write step is blocked until these are filled in.",
+  "_wix_note": "Wix categories are 'Halton Region - Social/Practical/Spiritual' (created Sept 2026 once the category cap was cleared); the Halton page's lists filter on them. The console row was created with these blank, so the source sync now fills blank console IDs from this file.",
   "default_images": {
     "social": "ff627a_27c471962388496492eb61568dda0041~mv2.png",
     "practical": "ff627a_f1cf2e1967bd4b6cab2f85f86f661387~mv2.png",

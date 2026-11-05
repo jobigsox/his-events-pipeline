@@ -153,6 +153,9 @@ def push_sources():
         if shared:
             print("  %s shared with all managers: +%d access, +%d pending invites"
                   % (slug, shared.get("granted", 0), shared.get("invited", 0)))
+        if res.get("wixFilled"):
+            print("::notice::%s: filled blank Wix category IDs in the console: %s"
+                  % (slug, ", ".join(res["wixFilled"])))
         if res.get("cityCreated"):
             print("::notice::%s: city created in the console from cities/%s.json" % (slug, slug))
         print("  pushed %s: +%d sources%s, +%d manual events%s%s"
