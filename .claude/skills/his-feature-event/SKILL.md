@@ -60,8 +60,8 @@ Use the HIS Wix connector (`CallWixSiteAPI` / `ExecuteWixAPI`, siteId above).
    ```
    Re-run step 3: `assignedEventsCount` should go up by one.
 
-5. **Verify the live page.** It shows within a few minutes (Wix page cache;
-   Barrie took ~5). Re-scrape the city page and check the event title appears
+5. **Verify the live page.** It shows once Wix's page cache refreshes: Barrie took ~5 minutes,
+   Kelowna ~10. Don't redo the assignment while waiting. Re-scrape the city page and check the event title appears
    right after "Event hosted by HIS" instead of "No events at the moment".
 
 To remove an event later:
