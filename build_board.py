@@ -1935,6 +1935,76 @@ def parse_hamilton_city_events(src, start, end):
     return out
 
 
+_GEORGIAN_CAMPUSES = ("barrie|orillia|owen sound|midland|orangeville|muskoka|bracebridge|"
+                      "collingwood|south georgian bay|innisfil|village innis landing")
+# Georgian's feed mixes real events with its academic calendar ("Full winter
+# fees due ...", "Add/Drop registration closes ..."). Those are all-day
+# deadlines, never something to attend.
+_GEORGIAN_ADMIN = re.compile(
+    r"\bfees?\b.*\bdue\b|deposit due|last day|deadline|add/drop|registration (?:opens|begins|closes)"
+    r"|registration for the|grades due|apply to graduate|campus(?:es)? closed|term begins"
+    r"|classes begin|first day of|withdraw|deferral|ontariolearn|co-op work term|exam period"
+    r"|\bclosed\b|award cycle|offers of admission|equal consideration",
+    re.I)
+
+
+def parse_georgian_events(src, start, end):
+    """Georgian College (Gatsby front end over headless WordPress + Events
+    Manager). The events page loads /wp-json/georgian/v1/future-events, which
+    returns every upcoming occurrence (recurring series already expanded) with
+    local start/end times. Campus is only ever in the title ("Movember -
+    Barrie"); untitled-campus events are college-wide and kept. Event pages
+    live at www.georgiancollege.ca/news-events/events/<post_name>/."""
+    rows = fetch(src["url"], timeout=60)
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    campus = (src.get("campus") or CITY.get("city") or "").strip().lower()
+    campus_re = re.compile(r"\s[-–—]\s*(%s)(?:\s+campus)?\s*$" % _GEORGIAN_CAMPUSES, re.I)
+    base = src.get("event_url_base") or "https://www.georgiancollege.ca/news-events/events/"
+    out = []
+    for e in rows if isinstance(rows, list) else []:
+        if not isinstance(e, dict) or e.get("post_status", "publish") != "publish":
+            continue
+        if str(e.get("event_private") or "0") == "1" or not e.get("post_name"):
+            continue
+        try:
+            sd = dt.date.fromisoformat((e.get("event_start_date") or "")[:10])
+            ed = dt.date.fromisoformat((e.get("event_end_date") or "")[:10] or sd.isoformat())
+        except ValueError:
+            continue
+        if sd > end or ed < start:
+            continue
+        title = strip_html(e.get("event_name") or e.get("post_title"))
+        m = campus_re.search(title)
+        if m and campus and m.group(1).lower() != campus:
+            continue
+        if _GEORGIAN_ADMIN.search(title):
+            continue
+        body = ((e.get("event_attributes") or {}).get("post_content_filtered")
+                or e.get("post_content_filtered") or e.get("post_content") or "")
+        body = body.rsplit("</script>", 1)[-1]          # a stray console.log() leads every body
+        desc = strip_html(body)
+        if desc.lower() == "redacted":
+            desc = ""
+        all_day = str(e.get("event_all_day") or "0") == "1"
+        st, et = (e.get("event_start_time") or "")[:5], (e.get("event_end_time") or "")[:5]
+        if sd < start:                                  # multi-day run already under way
+            sd = start
+        s = sd.isoformat() if all_day or not st else "%s %s" % (sd, st)
+        en = ed.isoformat() if all_day or not et else "%s %s" % (ed, et)
+        online = re.search(r"\b(online|webinar|zoom|ms teams|microsoft teams)\b", title + " " + desc[:300], re.I)
+        out.append({
+            "source_id": src["id"], "source": src["name"],
+            "title": title, "description": desc[:400],
+            "start": s, "end": en, "utc": False,
+            "venue": "Online" if online else src.get("default_venue", "Georgian College, Barrie Campus"),
+            "cost": src.get("default_cost", "Free"),
+            "url": base + e["post_name"].strip("/") + "/",
+            "image": e.get("image_url") or None,
+        })
+    return out
+
+
 PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "mohawk_drupal": parse_mohawk_drupal, "ticketmaster": parse_ticketmaster,
            "communico": parse_communico, "opl": parse_opl, "probe": parse_probe,
@@ -1950,7 +2020,8 @@ PARSERS = {"tribe": parse_tribe, "sqs": parse_sqs, "manual": parse_manual,
            "imis_events": parse_imis_events, "sitecore_sxa": parse_sitecore_sxa,
            "drupal_fullcalendar": parse_drupal_fullcalendar, "visit_kingston": parse_visit_kingston,
            "jet_events": parse_jet_events, "downtown_kelowna_events": parse_downtown_kelowna_events,
-           "hamilton_city_events": parse_hamilton_city_events}
+           "hamilton_city_events": parse_hamilton_city_events,
+           "georgian_events": parse_georgian_events}
 
 
 # ---------------------------------------------------------------- assembly

@@ -189,6 +189,45 @@ class Parsers(unittest.TestCase):
         self.assertNotIn("Drop-in Advising with the ISAs", titles)
         self.assertNotIn("Old thing", titles)
 
+    def test_georgian_events(self):
+        def row(name, slug, sd, st="12:30:00", ed=None, et="13:30:00", all_day=None, body=""):
+            return {"event_name": name, "post_name": slug, "post_status": "publish",
+                    "event_private": 0, "event_all_day": all_day,
+                    "event_start_date": sd, "event_start_time": st,
+                    "event_end_date": ed or sd, "event_end_time": et, "image_url": "",
+                    "post_content": "redacted",
+                    "event_attributes": {"post_content_filtered":
+                                         "console.log({renderer: 'save_post'});</script>\n" + body}}
+        rows = [
+            row("Free Clothing Market &#8211; Barrie", "free-clothing-market-barrie", "2026-11-10",
+                "11:00:00", et="15:00:00", body="<p>Browse and take gently used clothing.</p>"),
+            row("Conversation Circles", "conversation-circles-2-2026-11-10", "2026-11-10", "12:00:00"),
+            row("Spirit Week - Barrie", "spirit-week-barrie", "2026-10-12", "11:00:00", "2026-10-23"),
+            row("Pub Night - Orillia", "pub-night-orillia", "2026-11-12", "20:00:00"),
+            row("Full winter fees due for international students", "fees-4", "2026-11-26",
+                "00:00:00", et="23:59:59", all_day=1),
+            row("Add/Drop registration closes", "add-drop", "2026-12-15", all_day=1),
+            row("Money Map webinar on Zoom", "money-map", "2026-11-19"),
+            row("Too late", "too-late", "2027-03-01"),
+        ]
+        B.fetch = lambda url, *a, **k: json.loads(json.dumps(rows))
+        B.CITY = {"city": "Barrie", "manual_events": []}
+        out = B.parse_georgian_events({"id": "gc", "name": "Georgian College",
+                                       "url": "https://content.georgiancollege.ca/wp-json/georgian/v1/future-events"},
+                                      START, END)
+        by = {e["title"]: e for e in out}
+        self.assertEqual(set(by), {"Free Clothing Market – Barrie", "Conversation Circles",
+                                   "Spirit Week - Barrie", "Money Map webinar on Zoom"})
+        fcm = by["Free Clothing Market – Barrie"]
+        self.assertEqual(fcm["start"], "2026-11-10 11:00")
+        self.assertEqual(fcm["end"], "2026-11-10 15:00")
+        self.assertEqual(fcm["description"], "Browse and take gently used clothing.")
+        self.assertEqual(fcm["url"], "https://www.georgiancollege.ca/news-events/events/free-clothing-market-barrie/")
+        self.assertEqual(fcm["venue"], "Georgian College, Barrie Campus")
+        self.assertEqual(by["Conversation Circles"]["description"], "")
+        self.assertEqual(by["Spirit Week - Barrie"]["start"], "2026-10-20 11:00")   # clipped to window
+        self.assertEqual(by["Money Map webinar on Zoom"]["venue"], "Online")
+
     def test_visit_kingston(self):
         sent = {}
 
