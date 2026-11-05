@@ -1,6 +1,7 @@
 {
   "city": "Calgary",
   "slug": "calgary",
+  "share_with_all_managers": true,
   "timezone": "America/Edmonton",
   "wix": {
     "site_id": "a8184ab6-cb25-4a52-8c23-1eb37f03bc6b",
