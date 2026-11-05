@@ -135,7 +135,8 @@ def push_sources():
                 # Lets the console create a city it doesn't have yet (create-only;
                 # an existing city's settings are never overwritten).
                 "city": {k: cfg[k] for k in ("city", "timezone", "wix", "default_images",
-                                             "central_venue_words") if k in cfg}}
+                                             "central_venue_words", "share_with_all_managers")
+                         if k in cfg}}
         try:
             res = call("POST", "/api/cities/%s/sources/sync" % slug, body, timeout=120)
         except urllib.error.HTTPError as e:
@@ -148,6 +149,10 @@ def push_sources():
         added = res.get("addedSources") or []
         kept = res.get("skippedRemoved") or []
         upgraded = res.get("upgradedSources") or []
+        shared = res.get("shared")
+        if shared:
+            print("  %s shared with all managers: +%d access, +%d pending invites"
+                  % (slug, shared.get("granted", 0), shared.get("invited", 0)))
         if res.get("cityCreated"):
             print("::notice::%s: city created in the console from cities/%s.json" % (slug, slug))
         print("  pushed %s: +%d sources%s, +%d manual events%s%s"
