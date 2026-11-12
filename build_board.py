@@ -49,7 +49,7 @@ MAX_REPEATS = 2     # occurrences kept per identical title, per source, per mont
 # concert a student would go to. Capped instead to the best few per rolling
 # 4-week window, below, so they can't crowd out the free practical/social feed.
 TICKETED_KINDS = {"ticketmaster", "ottawa_tourism", "audienceview", "visit_kingston",
-                  "downtown_kelowna_events", "tourism_barrie"}
+                  "downtown_kelowna_events", "tourism_barrie", "tourism_hamilton"}
 # Feeds whose listings never carry a price, so the cost part of `score` can't
 # judge them: capped like ticketed feeds unless a source sets "capped": false.
 CAPPED_BY_DEFAULT = {"imis_events"}
@@ -734,11 +734,30 @@ def parse_queensu_events(src, start, end):
     return out
 
 
+_FREE_TEXT = re.compile(
+    r"\bfree\s+(admission|entry|event|of charge|to (attend|the public|all))\b"
+    r"|\badmission\s+(is\s+)?free\b|\bno\s+(cost|charge)\b|\bfree\s+for\s+all\b",
+    re.I)
+
+
+def _says_free(text):
+    """True when an event's own description says it costs nothing. Deliberately
+    narrow: a bare 'free' also matches 'free parking' or 'gluten-free'."""
+    return bool(_FREE_TEXT.search(text or ""))
+
+
 def parse_tourism_hamilton(src, start, end):
     """Custom WordPress theme with no REST route for its 'event' post type
     (not even listed in /wp-json/wp/v2/types), but Yoast's auto-generated
     /event-sitemap.xml enumerates every event page, and each page has plain
-    regex-able info__date / info__description markup."""
+    regex-able info__date / info__description markup.
+
+    No price field exists on these pages, and the feed is mostly concerts,
+    arena shows and pro sports (Hilary Duff, Harlem Globetrotters, HPO), so
+    cost is 'See website' (or the source's default_cost) unless the page's
+    own description says the event is free - hard-coding 'Free' put ticketed
+    shows on the site as free. That loses the scorer's free-event points, so
+    the kind is in TICKETED_KINDS like the other tourism feeds."""
     base = src["url"].rstrip("/")
     sitemap = fetch_text(base + "/event-sitemap.xml", accept="application/xml,text/xml,*/*")
     urls = re.findall(r"<loc>([^<]+)</loc>", sitemap)
@@ -756,14 +775,16 @@ def parse_tourism_hamilton(src, start, end):
         if not sd:
             continue
         desc_idx = page.find('class="info__description"')
-        description = strip_html(page[desc_idx:desc_idx + 3000])[:400] if desc_idx != -1 else ""
+        full_desc = strip_html(page[desc_idx:desc_idx + 3000]) if desc_idx != -1 else ""
+        description = full_desc[:400]
         img_m = re.search(r'class="event_image"[^>]*data-lazy-src="([^"]+)"', page)
         out.append({
             "source_id": src["id"], "source": src["name"],
             "title": html.unescape(title_m.group(1)).strip(), "description": description,
             "start": sd.strftime("%Y-%m-%d %H:%M:%S"),
             "end": (ed or sd).strftime("%Y-%m-%d %H:%M:%S"),
-            "utc": False, "venue": "Hamilton", "cost": "Free",
+            "utc": False, "venue": "Hamilton",
+            "cost": "Free" if _says_free(full_desc) else src.get("default_cost", "See website"),
             "url": u, "image": img_m.group(1) if img_m else None,
         })
     return out
