@@ -308,6 +308,41 @@ class Parsers(unittest.TestCase):
         self.assertEqual(mar["venue"], "Isabel Bader Centre for the Performing Arts")
         self.assertEqual(mar["cost"], "See website")
 
+    def test_tourism_hamilton_cost(self):
+        # Trimmed from tourismhamilton.com event pages (Nov 2026).
+        def page(title, date, desc):
+            return ('<h1 class="banner__title-content ">%s </h1>'
+                    '<div class="info__date"> 			%s </div>'
+                    '<div class="info__description"><p>%s</p></div>') % (title, date, desc)
+        pages = {
+            "https://tourismhamilton.com/event/hilary-duff/": page(
+                "Hilary Duff", "January 12, 2027",
+                "Experience the evolved sounds of popstar Hilary Duff. For more show and "
+                "ticket information, visit TD Coliseum. Free parking is not available."),
+            "https://tourismhamilton.com/event/santa-parade/": page(
+                "Hamilton Santa Claus Parade", "November 21, 2026",
+                "The parade returns downtown. Free admission for the whole family!"),
+        }
+
+        def fake(url, *a, **k):
+            if url.endswith("/event-sitemap.xml"):
+                return "".join("<url><loc>%s</loc></url>" % u for u in pages)
+            return pages[url]
+        B.fetch_text = fake
+        out = B.parse_tourism_hamilton({"id": "th", "name": "Tourism Hamilton",
+                                        "url": "https://tourismhamilton.com"}, START, END)
+        by = {e["title"]: e for e in out}
+        # A concert with no price on the page is not labelled free ("Free
+        # parking" in its text must not count).
+        self.assertEqual(by["Hilary Duff"]["cost"], "See website")
+        self.assertEqual(by["Hamilton Santa Claus Parade"]["cost"], "Free")
+        out = B.parse_tourism_hamilton({"id": "th", "name": "Tourism Hamilton", "default_cost": "Ticketed",
+                                        "url": "https://tourismhamilton.com"}, START, END)
+        self.assertEqual({e["title"]: e["cost"] for e in out}["Hilary Duff"], "Ticketed")
+        self.assertIn("tourism_hamilton", B.TICKETED_KINDS)
+        self.assertFalse(B._says_free("Gluten-free snacks and free parking"))
+        self.assertTrue(B._says_free("Admission is free."))
+
 
 if __name__ == "__main__":
     unittest.main()
